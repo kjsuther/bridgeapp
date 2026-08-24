@@ -13,6 +13,8 @@ interface PeerEntry {
   stream: MediaStream | null;
   makingOffer: boolean;
   ignoreOffer: boolean;
+  isSettingRemoteAnswerPending: boolean;
+  polite: boolean;
   pendingCandidates: RTCIceCandidateInit[];
   remoteDescriptionSet: boolean;
   retryCount: number;
@@ -24,25 +26,32 @@ interface UseWebRTCOptions {
   enabled: boolean;
 }
 
-const ICE_SERVERS: RTCIceServer[] = [
+function getIceServers(): RTCIceServer[] {
+  const servers: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  {
-    urls: 'turn:openrelay.metered.ca:80',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-  {
-    urls: 'turn:openrelay.metered.ca:443',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-  {
-    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-];
+  ];
+
+  const turnUrls = import.meta.env.VITE_TURN_URLS;
+  const username = import.meta.env.VITE_TURN_USERNAME;
+  const credential = import.meta.env.VITE_TURN_CREDENTIAL;
+  if (turnUrls && username && credential) {
+    servers.push({
+      urls: turnUrls.split(',').map((url: string) => url.trim()).filter(Boolean),
+      username,
+      credential,
+    });
+  }
+
+  return servers;
+}
+
+const SPEECH_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: { ideal: true },
+  noiseSuppression: { ideal: true },
+  autoGainControl: { ideal: true },
+  channelCount: { ideal: 1 },
+};
 
 const MAX_RETRIES = 3;
 
@@ -51,6 +60,7 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
   const [peerStreams, setPeerStreams] = useState<Map<string, MediaStream>>(new Map());
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
+  const [outputEnabled, setOutputEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
 
@@ -64,7 +74,7 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 320, height: 240 },
-        audio: true,
+        audio: SPEECH_AUDIO_CONSTRAINTS,
       });
       localStreamRef.current = stream;
       setLocalStream(stream);
@@ -74,7 +84,7 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: false,
-          audio: true,
+          audio: SPEECH_AUDIO_CONSTRAINTS,
         });
         localStreamRef.current = stream;
         setLocalStream(stream);
@@ -84,7 +94,9 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
         const stream = new MediaStream();
         localStreamRef.current = stream;
         setLocalStream(stream);
-        setError('Camera and microphone access denied. You will appear as audio-only.');
+        setVideoEnabled(false);
+        setAudioEnabled(false);
+        setError('Camera and microphone access denied. You can still watch and listen.');
         setStatus('connected');
         return stream;
       }
@@ -100,8 +112,8 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     }
   }, []);
 
-  const createPeer = useCallback((peerId: string, isInitiator: boolean): RTCPeerConnection => {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  const createPeer = useCallback((peerId: string): RTCPeerConnection => {
+    const pc = new RTCPeerConnection({ iceServers: getIceServers() });
 
     const entry: PeerEntry = {
       userId: peerId,
@@ -109,6 +121,8 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
       stream: null,
       makingOffer: false,
       ignoreOffer: false,
+      isSettingRemoteAnswerPending: false,
+      polite: peerId > userIdRef.current,
       pendingCandidates: [],
       remoteDescriptionSet: false,
       retryCount: 0,
@@ -118,6 +132,7 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     const local = localStreamRef.current;
     if (local) {
       local.getTracks().forEach((track) => {
+        if (track.kind === 'audio') track.contentHint = 'speech';
         pc.addTrack(track, local);
       });
     }
@@ -160,21 +175,21 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
       }
     };
 
-    if (isInitiator) {
-      entry.makingOffer = true;
-      pc.onnegotiationneeded = async () => {
-        try {
-          await pc.setLocalDescription();
-          channelRef.current?.send({
-            type: 'broadcast',
-            event: 'signal',
-            payload: { kind: 'offer', target: peerId, from: userIdRef.current, data: pc.localDescription },
-          });
-        } catch {
-          // negotiation error
-        }
-      };
-    }
+    pc.onnegotiationneeded = async () => {
+      try {
+        entry.makingOffer = true;
+        await pc.setLocalDescription();
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'signal',
+          payload: { kind: 'offer', target: peerId, from: userIdRef.current, data: pc.localDescription },
+        });
+      } catch {
+        // A later negotiationneeded event or ICE restart can recover.
+      } finally {
+        entry.makingOffer = false;
+      }
+    };
 
     return pc;
   }, []);
@@ -192,7 +207,7 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     let entry = peersRef.current.get(fromId);
 
     if (!entry) {
-      const pc = createPeer(fromId, false);
+      const pc = createPeer(fromId);
       entry = peersRef.current.get(fromId)!;
       void pc;
     }
@@ -202,8 +217,10 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     try {
       if (msg.kind === 'offer') {
         const description = msg.data as RTCSessionDescriptionInit;
-        const collision = entry.makingOffer || pc.signalingState !== 'stable';
-        entry.ignoreOffer = collision && fromId > userIdRef.current;
+        const readyForOffer = !entry.makingOffer &&
+          (pc.signalingState === 'stable' || entry.isSettingRemoteAnswerPending);
+        const collision = !readyForOffer;
+        entry.ignoreOffer = !entry.polite && collision;
 
         if (entry.ignoreOffer) return;
 
@@ -220,7 +237,12 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
       } else if (msg.kind === 'answer') {
         const description = msg.data as RTCSessionDescriptionInit;
         if ((pc.signalingState as string) === 'have-local-offer') {
-          await pc.setRemoteDescription(description);
+          entry.isSettingRemoteAnswerPending = true;
+          try {
+            await pc.setRemoteDescription(description);
+          } finally {
+            entry.isSettingRemoteAnswerPending = false;
+          }
           entry.remoteDescriptionSet = true;
           flushPendingCandidates(entry);
         }
@@ -249,6 +271,7 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     if (!enabled || !tableId || !userId) return;
 
     let cancelled = false;
+    const peers = peersRef.current;
 
     (async () => {
       await getLocalStream();
@@ -269,7 +292,7 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
         const msg = payload.payload as { from: string };
         if (msg.from === userIdRef.current) return;
         if (!peersRef.current.has(msg.from)) {
-          createPeer(msg.from, true);
+          createPeer(msg.from);
         }
       });
 
@@ -282,10 +305,10 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
 
     return () => {
       cancelled = true;
-      peersRef.current.forEach((entry) => {
+      peers.forEach((entry) => {
         entry.pc.close();
       });
-      peersRef.current.clear();
+      peers.clear();
       setPeerStreams(new Map());
 
       if (localStreamRef.current) {
@@ -321,13 +344,19 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     }
   }, []);
 
+  const toggleOutput = useCallback(() => {
+    setOutputEnabled((enabledNow) => !enabledNow);
+  }, []);
+
   return {
     localStream,
     peerStreams,
     videoEnabled,
     audioEnabled,
+    outputEnabled,
     toggleVideo,
     toggleAudio,
+    toggleOutput,
     error,
     status,
   };

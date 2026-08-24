@@ -6,10 +6,11 @@ interface VideoTileProps {
   seat: string;
   isLocal: boolean;
   muted?: boolean;
+  volume?: number;
   className?: string;
 }
 
-export function VideoTile({ stream, displayName, seat, isLocal, muted, className = '' }: VideoTileProps) {
+export function VideoTile({ stream, displayName, seat, isLocal, muted = false, volume = 1, className = '' }: VideoTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -29,7 +30,9 @@ export function VideoTile({ stream, displayName, seat, isLocal, muted, className
     } else {
       video.srcObject = null;
     }
-  }, [stream, isLocal]);
+    video.muted = muted || isLocal;
+    video.volume = Math.min(1, Math.max(0, volume));
+  }, [stream, isLocal, muted, volume]);
 
   return (
     <div className={`relative rounded-xl overflow-hidden bg-slate-800 shadow-lg ring-1 ring-slate-700/50 ${className}`}>
@@ -39,6 +42,7 @@ export function VideoTile({ stream, displayName, seat, isLocal, muted, className
           autoPlay
           playsInline
           muted={muted || isLocal}
+          aria-label={`${displayName} video`}
           className="w-full h-full object-cover"
         />
       ) : (
