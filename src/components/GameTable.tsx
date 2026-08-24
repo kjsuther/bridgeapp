@@ -11,9 +11,9 @@ import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/b
 import { SEATS, SUIT_SYMBOLS, STRAIN_SYMBOLS, sideOfSeat } from '@/types/bridge';
 import { getLegalCards } from '@/lib/play';
 import {
-  Mic, MicOff, Video, VideoOff, ArrowLeft, Undo2, Check, X,
+  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X,
 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 interface GameTableProps {
   tableId: string;
@@ -21,6 +21,32 @@ interface GameTableProps {
 }
 
 type ViewSide = 'bottom' | 'left' | 'top' | 'right';
+
+const TABLE_STAGE_WIDTH = 1280;
+const TABLE_STAGE_HEIGHT = 820;
+
+function useTableStageScale() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateScale = () => {
+      const { width, height } = container.getBoundingClientRect();
+      if (!width || !height) return;
+      setScale(Math.min(width / TABLE_STAGE_WIDTH, height / TABLE_STAGE_HEIGHT, 1.25));
+    };
+
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  return { containerRef, scale };
+}
 
 function rotationFor(mySeat: Seat): Record<Seat, ViewSide> {
   switch (mySeat) {
@@ -42,9 +68,10 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
 
   const myUserId = profile?.id ?? '';
   const {
-    localStream, peerStreams, videoEnabled, audioEnabled,
-    toggleVideo, toggleAudio, error: webrtcError,
+    localStream, peerStreams, videoEnabled, audioEnabled, outputEnabled,
+    toggleVideo, toggleAudio, toggleOutput, error: webrtcError,
   } = useWebRTC({ tableId, userId: myUserId, enabled: true });
+  const { containerRef: tableStageRef, scale: tableStageScale } = useTableStageScale();
 
   const seatToUserId: Record<Seat, string> = useMemo(() => {
     const map: Record<Seat, string> = { N: '', E: '', S: '', W: '' };
@@ -211,9 +238,9 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     }
   })();
 
-  const myVideoSizeClass = 'w-32 h-24 md:w-40 md:h-30 lg:w-48 lg:h-32';
-  const otherVideoSizeClass = 'w-56 h-40 md:w-64 md:h-48 lg:w-72 lg:h-52';
-  const dummyVideoSizeClass = 'w-56 h-40 md:w-64 md:h-48 lg:w-72 lg:h-52';
+  const myVideoSizeClass = 'w-48 aspect-[4/3]';
+  const otherVideoSizeClass = 'w-72 aspect-[4/3]';
+  const dummyVideoSizeClass = 'w-72 aspect-[4/3]';
   const myCardSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'xl';
   const dummyCardSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'xl';
   const otherCardSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'md';
@@ -243,7 +270,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-emerald-950/80 to-slate-900 flex flex-col">
+    <div className="h-dvh min-h-[36rem] overflow-hidden bg-gradient-to-br from-slate-900 via-emerald-950/80 to-slate-900 flex flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur border-b border-slate-700/50">
         <button
@@ -291,12 +318,24 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           })()}
           <button
             onClick={toggleAudio}
+            aria-label={audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
+            title={audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
             className={`p-2 rounded-lg transition-all ${audioEnabled ? 'bg-slate-700 text-white' : 'bg-red-600 text-white'}`}
           >
             {audioEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
           </button>
           <button
+            onClick={toggleOutput}
+            aria-label={outputEnabled ? 'Mute participant audio' : 'Unmute participant audio'}
+            title={outputEnabled ? 'Mute participant audio' : 'Unmute participant audio'}
+            className={`p-2 rounded-lg transition-all ${outputEnabled ? 'bg-slate-700 text-white' : 'bg-red-600 text-white'}`}
+          >
+            {outputEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+          <button
             onClick={toggleVideo}
+            aria-label={videoEnabled ? 'Turn camera off' : 'Turn camera on'}
+            title={videoEnabled ? 'Turn camera off' : 'Turn camera on'}
             className={`p-2 rounded-lg transition-all ${videoEnabled ? 'bg-slate-700 text-white' : 'bg-red-600 text-white'}`}
           >
             {videoEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
@@ -311,9 +350,20 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
       )}
 
       {/* Main game area */}
-      <div className="flex-1 flex">
-        {/* Table area — scales up on larger screens */}
-        <div className="flex-1 relative bg-emerald-950/20" style={{ minHeight: '620px' }}>
+      <div className="flex-1 flex min-h-0">
+        {/* Keep the full table composition together and scale it from the
+            available width and height. This prevents edge-anchored seats from
+            drifting apart or colliding as the window changes shape. */}
+        <div ref={tableStageRef} className="flex-1 relative min-w-0 min-h-0 overflow-hidden bg-emerald-950/20">
+          <div
+            className="absolute left-1/2 top-1/2"
+            style={{
+              width: TABLE_STAGE_WIDTH,
+              height: TABLE_STAGE_HEIGHT,
+              transform: `translate(-50%, -50%) scale(${tableStageScale})`,
+              transformOrigin: 'center',
+            }}
+          >
           {/* Felt table background — scales with screen */}
           <div className="absolute inset-4 md:inset-6 lg:inset-8 rounded-2xl bg-gradient-to-br from-emerald-900/40 to-emerald-950/60 border border-emerald-800/30" />
 
@@ -348,7 +398,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                       displayName={seatName}
                       seat={seat}
                       isLocal={seatToUserId[seat] === myUserId}
-                      muted={!audioEnabled}
+                      muted={!outputEnabled}
                       className={isDummySeatHere ? dummyVideoSizeClass : otherVideoSizeClass}
                     />
                     {phase === 'bidding' && lastBidPerSeat[seat] && (
@@ -410,7 +460,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                   displayName={seatToName[mySeat] || mySeat}
                   seat={mySeat}
                   isLocal
-                  muted={!audioEnabled}
+                  muted
                   className={myVideoSizeClass}
                 />
                 {phase === 'bidding' && lastBidPerSeat[mySeat] && (
@@ -513,6 +563,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
               onRespond={respondUndo}
             />
           )}
+          </div>
         </div>
 
         {/* Rubber results overlay */}

@@ -230,13 +230,14 @@ export function HandDisplay({
   // Overlap factor: each card shows only its left edge
   const cardW = CARD_WIDTH[size];
   const overlap = cardW * 0.62;
+  const cardAdvance = cardW - overlap;
   const suitGap = cardW * 0.25;
 
   // Calculate total width needed
   let totalCards = 0;
   for (const s of suits) totalCards += Math.max(0, bySuit[s].length);
   const totalWidth = totalCards > 0
-    ? cardW + (totalCards - 1) * overlap + 3 * suitGap
+    ? cardW + (totalCards - 1) * cardAdvance + Math.max(0, suits.filter((s) => bySuit[s].length > 0).length - 1) * suitGap
     : 0;
 
   return (
@@ -375,6 +376,7 @@ export function DummyHandDisplay({
   const cardW = CARD_WIDTH[size];
   const cardH = cardW * 1.4;
   const vOverlap = cardH * 0.62;
+  const cardAdvance = cardH - vOverlap;
   const colGap = cardW * 0.3;
 
   const rotationDeg: Record<string, number> = {
@@ -389,7 +391,7 @@ export function DummyHandDisplay({
   const numCols = nonEmptySuits.length;
   const layoutWidth = numCols > 0 ? numCols * cardW + (numCols - 1) * colGap : cardW;
   const maxColHeight = Math.max(1, ...nonEmptySuits.map((s) => bySuit[s].length));
-  const layoutHeight = cardH + (maxColHeight - 1) * vOverlap;
+  const layoutHeight = cardH + (maxColHeight - 1) * cardAdvance;
 
   return (
     <div

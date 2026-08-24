@@ -9,7 +9,7 @@ import {
   sideOfSeat, isVulnerable, SEATS,
 } from '@/types/bridge';
 import {
-  dealHands, dealToJSON, jsonToDeal, sortHand, vulnerabilityForHand, dealerForHand,
+  jsonToDeal, sortHand, dealerForHand,
 } from '@/lib/dealing';
 import {
   isValidBid, isAuctionComplete, isPassedOut, determineContract, getBidderSeat,
@@ -83,10 +83,31 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const [handNumber, setHandNumber] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const handVersionRef = useRef(0);
   const [currentHandId, setCurrentHandId] = useState<string | null>(null);
   const [bidUndoRequest, setBidUndoRequest] = useState<UndoRequest | null>(null);
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  const updateHand = useCallback(async (
+    handId: string,
+    patch: Record<string, unknown>,
+  ): Promise<boolean> => {
+    const { data: nextVersion, error: updateError } = await supabase
+      .rpc('update_bridge_hand', {
+        p_hand_id: handId,
+        p_expected_version: handVersionRef.current,
+        p_patch: patch,
+      });
+
+    if (updateError || nextVersion === null) {
+      setError('The table changed on another device. Your view is being refreshed.');
+      return false;
+    }
+
+    handVersionRef.current = Number(nextVersion);
+    return true;
+  }, []);
   const profileRef = useRef(profile);
   profileRef.current = profile;
   const creatingHandRef = useRef(false);
@@ -176,12 +197,27 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
     if (hands && hands.length > 0) {
       const hand = hands[0];
+      handVersionRef.current = Number(hand.state_version ?? 0);
+      const { data: visibleHands, error: visibleHandsError } = await supabase
+        .from('hand_cards')
+        .select('seat, cards')
+        .eq('hand_id', hand.id);
+
+      if (visibleHandsError) {
+        setError('Your cards could not be loaded. Please refresh the table.');
+        return;
+      }
+
+      const visibleDeal: Record<string, string[]> = { N: [], E: [], S: [], W: [] };
+      for (const row of visibleHands ?? []) {
+        visibleDeal[row.seat as Seat] = row.cards as string[];
+      }
       setCurrentHandId(hand.id);
       setContract(null);
       setPlayState(null);
       setLastScore(null);
       setPassedOut(false);
-      const loadedDeal = jsonToDeal(hand.deal as Record<string, string[]>);
+      const loadedDeal = jsonToDeal(visibleDeal);
       setDeal(loadedDeal);
       setDealer(hand.dealer as Seat);
       setVulnerability(hand.vulnerability as Vulnerability);
@@ -224,6 +260,11 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
+        table: 'hand_cards',
+      }, () => loadGameState())
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
         table: 'games',
         filter: `id=eq.${gameId}`,
       }, () => loadGameState())
@@ -249,30 +290,27 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     creatingHandRef.current = true;
 
     const firstDealer: Seat = 'N';
-    const newDeal = dealHands();
     const newDealer = dealerForHand(hNum, firstDealer);
-    const vul = vulnerabilityForHand(hNum);
+    const vul: Vulnerability =
+      rubberState.nsGamesWon > 0 && rubberState.ewGamesWon > 0 ? 'both'
+        : rubberState.nsGamesWon > 0 ? 'NS'
+          : rubberState.ewGamesWon > 0 ? 'EW'
+            : 'none';
 
     const { data: hand, error: handError } = await supabase
-      .from('hands')
-      .insert({
-        game_id: gameId,
-        hand_number: hNum,
-        deal: dealToJSON(newDeal),
-        dealer: newDealer,
-        vulnerability: vul,
-        auction: [],
-        phase: 'bidding',
-      })
-      .select('id')
-      .maybeSingle();
+      .rpc('create_bridge_hand', {
+        p_game_id: gameId,
+        p_hand_number: hNum,
+        p_dealer: newDealer,
+        p_vulnerability: vul,
+      });
 
     creatingHandRef.current = false;
     if (handError && handError.code !== '23505') {
       setError('The first hand could not be dealt. Please try again.');
     }
-    return hand?.id ?? null;
-  }, [gameId]);
+    return (hand as string | null) ?? null;
+  }, [gameId, rubberState.nsGamesWon, rubberState.ewGamesWon]);
 
   // Any seated player may deal the first hand; the unique constraint prevents duplicates.
   useEffect(() => {
@@ -337,16 +375,13 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       updateData.play_state = newPlayState;
     }
 
-    await supabase
-      .from('hands')
-      .update(updateData)
-      .eq('id', currentHandId);
+    await updateHand(currentHandId, updateData);
 
     setContract(newContract);
     setPlayState(newPlayState);
     setPhase(newPhase);
     setPassedOut(newPassedOut);
-  }, [mySeat, currentHandId, auction, dealer]);
+  }, [mySeat, currentHandId, auction, dealer, updateHand]);
 
   // Card play
   const playCard = useCallback(async (card: Card) => {
@@ -388,16 +423,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     const { newPlayState } = applyCardPlay(playState, playingSeat, card, contract?.strain && contract.strain !== 'NT' ? (contract.strain as Suit) : null);
     setPlayState(newPlayState);
     setError(null);
-
-    // Save the play
-    await supabase
-      .from('plays')
-      .insert({
-        hand_id: currentHandId,
-        trick_number: playState.trickNumber,
-        seat: playingSeat,
-        card: `${card.rank}${card.suit}`,
-      });
 
     // Check if hand is complete
     let updatedPlayState = newPlayState;
@@ -520,15 +545,20 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       updateData.score = newLastScore;
     }
 
-    await supabase
-      .from('hands')
-      .update(updateData)
-      .eq('id', currentHandId);
+    const handSaved = await updateHand(currentHandId, updateData);
+    if (!handSaved) return;
+
+    await supabase.rpc('record_bridge_play', {
+      p_hand_id: currentHandId,
+      p_trick_number: playState.trickNumber,
+      p_seat: playingSeat,
+      p_card: `${card.rank}${card.suit}`,
+    });
 
     setPlayState(updatedPlayState);
     setPhase(newPhase);
     setContract(newContract);
-  }, [mySeat, currentHandId, playState, deal, contract, vulnerability, lastScore, gameId, tableId]);
+  }, [mySeat, currentHandId, playState, deal, contract, vulnerability, lastScore, rubberState, gameId, tableId, updateHand]);
 
   // --- Undo logic ---
   // Any player on the side that played the last card may request an undo.
@@ -576,11 +606,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     setPlayState(updatedPlayState);
     setError(null);
 
-    await supabase
-      .from('hands')
-      .update({ play_state: updatedPlayState })
-      .eq('id', currentHandId);
-  }, [mySeat, currentHandId, playState, phase]);
+    await updateHand(currentHandId, { play_state: updatedPlayState });
+  }, [mySeat, currentHandId, playState, phase, updateHand]);
 
   // --- Bidding undo logic ---
   // The player who made the last bid (or their partner) may request an undo.
@@ -612,11 +639,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     setBidUndoRequest(undoReq);
     setError(null);
 
-    await supabase
-      .from('hands')
-      .update({ bid_undo_request: undoReq })
-      .eq('id', currentHandId);
-  }, [mySeat, currentHandId, phase, bidUndoRequest, auction]);
+    await updateHand(currentHandId, { bid_undo_request: undoReq });
+  }, [mySeat, currentHandId, phase, bidUndoRequest, auction, updateHand]);
 
   const respondUndo = useCallback(async (accept: boolean) => {
     if (!mySeat || !currentHandId) return;
@@ -646,10 +670,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
       if (newDeclined.length > 0) {
         setBidUndoRequest(null);
-        await supabase
-          .from('hands')
-          .update({ bid_undo_request: null })
-          .eq('id', currentHandId);
+        await updateHand(currentHandId, { bid_undo_request: null });
         return;
       }
 
@@ -682,10 +703,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
           setPassedOut(false);
         }
 
-        await supabase
-          .from('hands')
-          .update(updateData)
-          .eq('id', currentHandId);
+        await updateHand(currentHandId, updateData);
         return;
       }
 
@@ -696,10 +714,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
         declinedBy: newDeclined,
       };
       setBidUndoRequest(updatedReq);
-      await supabase
-        .from('hands')
-        .update({ bid_undo_request: updatedReq })
-        .eq('id', currentHandId);
+      await updateHand(currentHandId, { bid_undo_request: updatedReq });
       return;
     }
 
@@ -737,10 +752,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       // Declined — clear the undo request, play continues
       const updatedPlayState = { ...latestPlayState, undoRequest: null };
       setPlayState(updatedPlayState);
-      await supabase
-        .from('hands')
-        .update({ play_state: updatedPlayState })
-        .eq('id', currentHandId);
+      await updateHand(currentHandId, { play_state: updatedPlayState });
       return;
     }
 
@@ -752,10 +764,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       if (!result) {
         const updatedPlayState = { ...latestPlayState, undoRequest: null };
         setPlayState(updatedPlayState);
-        await supabase
-          .from('hands')
-          .update({ play_state: updatedPlayState })
-          .eq('id', currentHandId);
+        await updateHand(currentHandId, { play_state: updatedPlayState });
         return;
       }
 
@@ -763,24 +772,11 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       setError(null);
 
       // Delete the last play record from the plays table
-      const { data: plays } = await supabase
-        .from('plays')
-        .select('id, trick_number, seat, card, created_at')
-        .eq('hand_id', currentHandId)
-        .order('created_at', { ascending: false })
-        .limit(1);
+      await supabase.rpc('delete_last_bridge_play', {
+        p_hand_id: currentHandId,
+      });
 
-      if (plays && plays.length > 0) {
-        await supabase
-          .from('plays')
-          .delete()
-          .eq('id', plays[0].id);
-      }
-
-      await supabase
-        .from('hands')
-        .update({ play_state: result.newPlayState })
-        .eq('id', currentHandId);
+      await updateHand(currentHandId, { play_state: result.newPlayState });
       return;
     }
 
@@ -792,11 +788,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     };
     const updatedPlayState = { ...latestPlayState, undoRequest: updatedReq };
     setPlayState(updatedPlayState);
-    await supabase
-      .from('hands')
-      .update({ play_state: updatedPlayState })
-      .eq('id', currentHandId);
-  }, [mySeat, currentHandId, playState, contract, bidUndoRequest, auction, phase]);
+    await updateHand(currentHandId, { play_state: updatedPlayState });
+  }, [mySeat, currentHandId, playState, contract, bidUndoRequest, auction, phase, updateHand]);
 
   const startNewHand = useCallback(async () => {
     if (!mySeat) return;

@@ -43,18 +43,11 @@ export function scoreHand(contract: Contract, vulnerability: Vulnerability): Han
 
     // Overtrick scoring
     if (contract.doubled === 0) {
-      aboveLine += contractTrickScore(contract.strain, 1) * overtricks;
+      const overtrickValue = contract.strain === 'NT' ? NT_EXTRA_TRICK : SUIT_PER_TRICK[contract.strain];
+      aboveLine += overtrickValue * overtricks;
     } else {
       const overtrickValue = declarerVuln ? 200 : 100;
       aboveLine += overtrickValue * overtricks * (contract.doubled === 2 ? 2 : 1);
-    }
-
-    // Game bonus (below line >= 100)
-    if (belowLine >= 100) {
-      aboveLine += declarerVuln ? 500 : 300;
-    } else {
-      // Part-game bonus
-      aboveLine += 50;
     }
 
     // Slam bonuses
