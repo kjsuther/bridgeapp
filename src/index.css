@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes card-fly-from-bottom {
+  from {
+    transform: translateY(200px) scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes card-fly-from-top {
+  from {
+    transform: translateY(-200px) scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes card-fly-from-left {
+  from {
+    transform: translateX(-200px) scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes card-fly-from-right {
+  from {
+    transform: translateX(200px) scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.card-fly-in-bottom {
+  animation: card-fly-from-bottom 0.4s ease-out;
+}
+.card-fly-in-top {
+  animation: card-fly-from-top 0.4s ease-out;
+}
+.card-fly-in-left {
+  animation: card-fly-from-left 0.4s ease-out;
+}
+.card-fly-in-right {
+  animation: card-fly-from-right 0.4s ease-out;
+}
+
+@keyframes bid-pop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.bid-pop-in {
+  animation: bid-pop 0.3s ease-out;
+}
