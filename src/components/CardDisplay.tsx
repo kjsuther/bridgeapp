@@ -4,6 +4,7 @@ import { SUIT_SYMBOLS, RANK_DISPLAY } from '@/types/bridge';
 interface CardDisplayProps {
   card: Card;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  cardWidth?: number;
   onClick?: () => void;
   disabled?: boolean;
   highlight?: boolean;
@@ -149,8 +150,8 @@ function FaceCardImage({ card, color }: { card: Card; color: string }) {
   );
 }
 
-export function CardDisplay({ card, size = 'sm', onClick, disabled, highlight }: CardDisplayProps) {
-  const w = CARD_WIDTH[size];
+export function CardDisplay({ card, size = 'sm', cardWidth, onClick, disabled, highlight }: CardDisplayProps) {
+  const w = cardWidth ?? CARD_WIDTH[size];
   const h = w * 1.4;
   return (
     <button
@@ -198,6 +199,7 @@ interface HandDisplayProps {
   isDummy?: boolean;
   isTurn?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  cardWidth?: number;
   trumpStrain?: string;
 }
 
@@ -210,13 +212,14 @@ export function HandDisplay({
   isDummy,
   isTurn,
   size = 'sm',
+  cardWidth,
   trumpStrain,
 }: HandDisplayProps) {
   if (hidden) {
     return (
       <div className={`flex flex-col items-center gap-1 ${isTurn ? 'ring-2 ring-amber-400/50 rounded-lg p-1.5' : ''}`}>
         {label && <span className="text-xs text-slate-400 font-medium">{label}</span>}
-        <CardBackFan size={size} />
+        <CardBackFan size={size} cardWidth={cardWidth} />
       </div>
     );
   }
@@ -228,7 +231,7 @@ export function HandDisplay({
   }
 
   // Overlap factor: each card shows only its left edge
-  const cardW = CARD_WIDTH[size];
+  const cardW = cardWidth ?? CARD_WIDTH[size];
   const overlap = cardW * 0.62;
   const cardAdvance = cardW - overlap;
   const suitGap = cardW * 0.25;
@@ -265,6 +268,7 @@ export function HandDisplay({
                     <CardDisplay
                       card={card}
                       size={size}
+                      cardWidth={cardWidth}
                       onClick={canClick ? () => onCardClick!(card) : undefined}
                       disabled={!canClick}
                       highlight={isLegal && !!onCardClick}
@@ -280,8 +284,8 @@ export function HandDisplay({
   );
 }
 
-export function CardBackFan({ size = 'sm' }: { size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' }) {
-  const w = CARD_WIDTH[size];
+export function CardBackFan({ size = 'sm', cardWidth }: { size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'; cardWidth?: number }) {
+  const w = cardWidth ?? CARD_WIDTH[size];
   const h = w * 1.4;
   return (
     <div className="flex items-center justify-center" style={{ width: w * 1.2, height: h }}>
@@ -320,9 +324,10 @@ export function CardBackFan({ size = 'sm' }: { size?: 'xs' | 'sm' | 'md' | 'lg' 
 interface PlayedCardProps {
   card: Card;
   seat: Seat;
+  cardWidth?: number;
 }
 
-export function PlayedCard({ card, seat }: PlayedCardProps) {
+export function PlayedCard({ card, seat, cardWidth }: PlayedCardProps) {
   const positionClasses: Record<Seat, string> = {
     N: 'translate-y-[-16px]',
     S: 'translate-y-[16px]',
@@ -332,7 +337,7 @@ export function PlayedCard({ card, seat }: PlayedCardProps) {
 
   return (
     <div className={`transition-all duration-300 ${positionClasses[seat]}`}>
-      <CardDisplay card={card} size="xl" />
+      <CardDisplay card={card} size="xl" cardWidth={cardWidth} />
     </div>
   );
 }
@@ -348,6 +353,7 @@ interface DummyHandDisplayProps {
   rotation?: 'up' | 'down' | 'left' | 'right';
   isTurn?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  cardWidth?: number;
   trumpStrain?: string;
 }
 
@@ -358,6 +364,7 @@ export function DummyHandDisplay({
   rotation = 'up',
   isTurn,
   size = 'xs',
+  cardWidth,
   trumpStrain,
 }: DummyHandDisplayProps) {
   // For 180° rotation, reverse suit and card order so they appear correct
@@ -373,7 +380,7 @@ export function DummyHandDisplay({
     for (const s of baseSuits) bySuit[s].reverse();
   }
 
-  const cardW = CARD_WIDTH[size];
+  const cardW = cardWidth ?? CARD_WIDTH[size];
   const cardH = cardW * 1.4;
   const vOverlap = cardH * 0.62;
   const cardAdvance = cardH - vOverlap;
@@ -442,6 +449,7 @@ export function DummyHandDisplay({
                       <CardDisplay
                         card={card}
                         size={size}
+                        cardWidth={cardW}
                         onClick={canClick ? () => onCardClick!(card) : undefined}
                         disabled={!canClick}
                         highlight={isLegal && !!onCardClick}

@@ -13,7 +13,7 @@ import { getLegalCards } from '@/lib/play';
 import {
   Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X,
 } from 'lucide-react';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 interface GameTableProps {
   tableId: string;
@@ -22,30 +22,22 @@ interface GameTableProps {
 
 type ViewSide = 'bottom' | 'left' | 'top' | 'right';
 
-const TABLE_STAGE_WIDTH = 1280;
-const TABLE_STAGE_HEIGHT = 820;
-
-function useTableStageScale() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-
+function useContainerSize() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const updateScale = () => {
-      const { width, height } = container.getBoundingClientRect();
-      if (!width || !height) return;
-      setScale(Math.min(width / TABLE_STAGE_WIDTH, height / TABLE_STAGE_HEIGHT, 1.25));
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width && rect.height) setSize({ width: rect.width, height: rect.height });
     };
-
-    updateScale();
-    const observer = new ResizeObserver(updateScale);
-    observer.observe(container);
-    return () => observer.disconnect();
+    update();
+    const obs = new ResizeObserver(update);
+    obs.observe(el);
+    return () => obs.disconnect();
   }, []);
-
-  return { containerRef, scale };
+  return { ref, ...size };
 }
 
 function rotationFor(mySeat: Seat): Record<Seat, ViewSide> {
@@ -56,6 +48,39 @@ function rotationFor(mySeat: Seat): Record<Seat, ViewSide> {
     case 'E': return { E: 'bottom', S: 'left', W: 'top', N: 'right' };
   }
 }
+
+function handWidthFactor(hand: Card[]): number {
+  if (hand.length === 0) return 1;
+  const suits = new Set(hand.map(c => c.suit));
+  return 1 + (hand.length - 1) * 0.38 + Math.max(0, suits.size - 1) * 0.25;
+}
+
+function dummyHandFactors(hand: Card[]) {
+  if (hand.length === 0) return { widthFactor: 1, heightFactor: 1.4 };
+  const bySuit: Record<string, Card[]> = {};
+  for (const c of hand) (bySuit[c.suit] ??= []).push(c);
+  const cols = Object.values(bySuit).filter(a => a.length > 0);
+  const numCols = cols.length || 1;
+  const maxColHeight = Math.max(1, ...cols.map(a => a.length));
+  const widthFactor = numCols * 1.3 - 0.3;
+  const heightFactor = 1.4 * (1 + (maxColHeight - 1) * 0.38);
+  return { widthFactor, heightFactor };
+}
+
+function computeDummyCardW(zoneW: number, zoneH: number, isRotated: boolean, hand: Card[]): number {
+  const { widthFactor, heightFactor } = dummyHandFactors(hand);
+  if (isRotated) {
+    return Math.max(28, Math.min(zoneW / heightFactor, zoneH / widthFactor, 110));
+  }
+  return Math.max(28, Math.min(zoneW / widthFactor, zoneH / heightFactor, 110));
+}
+
+const TRICK_POSITION_CLASSES: Record<ViewSide, string> = {
+  top: 'top-0 left-1/2 -translate-x-1/2',
+  bottom: 'bottom-0 left-1/2 -translate-x-1/2',
+  left: 'left-0 top-1/2 -translate-y-1/2',
+  right: 'right-0 top-1/2 -translate-y-1/2',
+};
 
 export function GameTable({ tableId, onLeave }: GameTableProps) {
   const { profile } = useAuth();
@@ -71,7 +96,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     localStream, peerStreams, videoEnabled, audioEnabled, outputEnabled,
     toggleVideo, toggleAudio, toggleOutput, error: webrtcError,
   } = useWebRTC({ tableId, userId: myUserId, enabled: true });
-  const { containerRef: tableStageRef, scale: tableStageScale } = useTableStageScale();
+  const { ref: tableAreaRef, width: availW, height: availH } = useContainerSize();
 
   const seatToUserId: Record<Seat, string> = useMemo(() => {
     const map: Record<Seat, string> = { N: '', E: '', S: '', W: '' };
@@ -89,7 +114,6 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     return new Set(legalCards.map((c) => `${c.rank}${c.suit}`));
   }, [legalCards]);
 
-  // Compute played cards to remove them from displayed hands
   const allPlayedCards = useMemo(() => {
     const played: Record<Seat, Card[]> = { N: [], E: [], S: [], W: [] };
     if (!playState) return played;
@@ -174,16 +198,12 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     return isDummySeat && seat === contract?.declarer;
   };
 
-  // Who can play cards for a given seat:
-  // - Declarer plays both their own hand and dummy's hand
-  // - Dummy cannot play any cards
-  // - Defenders play only their own hand
   const canPlayForSeat = (seat: Seat): boolean => {
     if (phase !== 'playing' || !playState) return false;
     if (playState.currentSeat !== seat) return false;
-    if (isDummySeat && seat === mySeat) return false; // dummy never plays
-    if (isDeclarer && (seat === mySeat || seat === dummy)) return true; // declarer plays own + dummy
-    if (seat === mySeat) return true; // defenders play own hand
+    if (isDummySeat && seat === mySeat) return false;
+    if (isDeclarer && (seat === mySeat || seat === dummy)) return true;
+    if (seat === mySeat) return true;
     return false;
   };
 
@@ -195,7 +215,6 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   const getLegalCardsForDisplay = (seat: Seat): Set<string> | undefined => {
     if (!canPlayForSeat(seat)) return undefined;
     if (!playState || !deal) return undefined;
-    // For dummy's hand when declarer is playing, compute legal cards from dummy's remaining hand
     if (seat !== mySeat && isDeclarer && seat === dummy) {
       const dummyHand = getHand(seat);
       const legal = getLegalCards(dummyHand, playState, seat);
@@ -212,9 +231,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
 
   const currentTrick = playState?.currentTrick ?? [];
 
-  // Undo availability: at least one card must have been played
   const hasCardsPlayed = (playState?.currentTrick.length ?? 0) > 0 || (playState?.completedTricks.length ?? 0) > 0;
-  // Only the side that played the last card can request undo
   const canRequestUndo = (() => {
     if (!mySeat || !playState) return false;
     let lastSeat: Seat | null = null;
@@ -238,22 +255,9 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     }
   })();
 
-  const myVideoSizeClass = 'w-48 aspect-[4/3]';
-  const otherVideoSizeClass = 'w-72 aspect-[4/3]';
-  const dummyVideoSizeClass = 'w-72 aspect-[4/3]';
-  const myCardSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'xl';
-  const dummyCardSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'xl';
-  const otherCardSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'md';
-
-  // Dummy hand rotation: the dummy hand should face the declarer.
-  // Map the dummy's view-side to a rotation direction.
   const dummyRotation: 'up' | 'down' | 'left' | 'right' = (() => {
     if (!dummy) return 'up';
     const dummySide = viewSides[dummy];
-    // If dummy is at top, cards face down toward declarer at bottom
-    // If dummy is at bottom, cards face up
-    // If dummy is on left, cards face right (toward center/declarer)
-    // If dummy is on right, cards face left
     switch (dummySide) {
       case 'top': return 'down';
       case 'bottom': return 'up';
@@ -262,11 +266,120 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     }
   })();
 
-  const trickPositionClasses: Record<ViewSide, string> = {
-    top: 'top-0 left-1/2 -translate-x-1/2',
-    bottom: 'bottom-0 left-1/2 -translate-x-1/2',
-    left: 'left-0 top-1/2 -translate-y-1/2',
-    right: 'right-0 top-1/2 -translate-y-1/2',
+  // --- Dynamic sizing based on measured container ---
+  const w = availW || 800;
+  const h = availH || 600;
+  const centerW = Math.max(240, w * 0.5);
+  const centerH = Math.max(240, h * 0.5);
+  const edgeH = Math.max(70, (h - centerH) / 2);
+  const edgeW = Math.max(90, (w - centerW) / 2);
+
+  const VIDEO_GAP = 10;
+  const ZONE_PAD = 12;
+
+  const myHandCards = getHand(mySeat);
+  const myCardW = Math.max(36, Math.min(
+    (w - 60) / handWidthFactor(myHandCards),
+    (edgeH - ZONE_PAD) / 1.4,
+    130,
+  ));
+
+  const sideVideoW = Math.min(150, edgeW * 0.6, centerH * 0.22);
+  const sideVideoH = sideVideoW * 0.75;
+  const tbVideoW = Math.min(180, w * 0.16, edgeH * 0.5);
+  const tbVideoH = tbVideoW * 0.75;
+  const myVideoW = Math.min(140, w * 0.12);
+  const myVideoH = myVideoW * 0.75;
+
+  let dummyCardW = 50;
+  if (dummy && isDummyRevealed && phase === 'playing') {
+    const dummySide = viewSides[dummy];
+    const dummyHandCards = getHand(dummy);
+    if (dummySide === 'top' || dummySide === 'bottom') {
+      const vH = tbVideoH;
+      const zoneW = w - 60;
+      const zoneH = edgeH - vH - VIDEO_GAP - ZONE_PAD;
+      dummyCardW = computeDummyCardW(zoneW, zoneH, false, dummyHandCards);
+    } else {
+      const vH = sideVideoH;
+      const zoneW = edgeW - ZONE_PAD;
+      const zoneH = centerH - vH - VIDEO_GAP - ZONE_PAD;
+      dummyCardW = computeDummyCardW(zoneW, zoneH, true, dummyHandCards);
+    }
+  }
+
+  const otherCardW = Math.max(30, Math.min(52, edgeW * 0.35, edgeH * 0.28));
+  const playedCardW = Math.max(44, Math.min(centerW * 0.22, centerH * 0.22, 88));
+  const trickAreaSize = Math.max(200, Math.min(centerW * 0.75, centerH * 0.75, 300));
+
+  const seatBySide: Record<ViewSide, Seat | null> = { top: null, bottom: null, left: null, right: null };
+  for (const seat of SEATS) {
+    seatBySide[viewSides[seat]] = seat;
+  }
+
+  const renderSeatContent = (seat: Seat) => {
+    const side = viewSides[seat];
+    const isMe = seat === mySeat;
+    const seatName = seatToName[seat] || seat;
+    const isDummySeatHere = dummy === seat && isDummyRevealed && phase === 'playing';
+    const showHand = shouldShowHand(seat);
+    const isTurnNow = currentSeat === seat && phase !== 'finished';
+    const cardW = isMe ? myCardW : isDummySeatHere ? dummyCardW : otherCardW;
+    const vW = side === 'left' || side === 'right' ? sideVideoW : tbVideoW;
+
+    return (
+      <SeatBadge
+        isTurn={isTurnNow}
+        isDealer={dealer === seat}
+        isVulnerable={isVulnerable(seat, vulnerability)}
+        seatLabel={seat}
+      >
+        <div className="flex flex-col items-center gap-2">
+          {!isMe && (
+            <div className="relative" style={{ width: vW }}>
+              <VideoTile
+                stream={getStreamForSeat(seat)}
+                displayName={seatName}
+                seat={seat}
+                isLocal={seatToUserId[seat] === myUserId}
+                muted={!outputEnabled}
+                className="w-full aspect-[4/3]"
+              />
+              {phase === 'bidding' && lastBidPerSeat[seat] && (
+                <BidBadge bid={lastBidPerSeat[seat]!.bid} />
+              )}
+            </div>
+          )}
+          {showHand ? (
+            dummy === seat && isDummyRevealed && phase === 'playing' ? (
+              <DummyHandDisplay
+                hand={getHand(seat)}
+                rotation={dummyRotation}
+                isTurn={isTurnNow}
+                cardWidth={cardW}
+                trumpStrain={contract?.strain}
+                onCardClick={getCardClickHandler(seat)}
+                legalCards={getLegalCardsForDisplay(seat)}
+              />
+            ) : (
+              <HandDisplay
+                hand={getHand(seat)}
+                seat={seat}
+                hidden={false}
+                cardWidth={cardW}
+                isDummy={dummy === seat && isDummyRevealed}
+                isTurn={isTurnNow && phase === 'playing'}
+                trumpStrain={contract?.strain}
+                onCardClick={getCardClickHandler(seat)}
+                legalCards={getLegalCardsForDisplay(seat)}
+              />
+            )
+          ) : (
+            <CardBackFan cardWidth={cardW} />
+          )}
+        </div>
+      </SeatBadge>
+    );
   };
 
   return (
@@ -351,128 +464,37 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
 
       {/* Main game area */}
       <div className="flex-1 flex min-h-0">
-        {/* Keep the full table composition together and scale it from the
-            available width and height. This prevents edge-anchored seats from
-            drifting apart or colliding as the window changes shape. */}
-        <div ref={tableStageRef} className="flex-1 relative min-w-0 min-h-0 overflow-hidden bg-emerald-950/20">
-          <div
-            className="absolute left-1/2 top-1/2"
-            style={{
-              width: TABLE_STAGE_WIDTH,
-              height: TABLE_STAGE_HEIGHT,
-              transform: `translate(-50%, -50%) scale(${tableStageScale})`,
-              transformOrigin: 'center',
-            }}
-          >
-          {/* Felt table background — scales with screen */}
-          <div className="absolute inset-4 md:inset-6 lg:inset-8 rounded-2xl bg-gradient-to-br from-emerald-900/40 to-emerald-950/60 border border-emerald-800/30" />
+        <div
+          ref={tableAreaRef}
+          className="flex-1 relative min-w-0 min-h-0 overflow-hidden bg-emerald-950/20"
+          style={{
+            display: 'grid',
+            gridTemplateAreas: '"top top top" "left center right" "bottom bottom bottom"',
+            gridTemplateColumns: 'minmax(90px, 1fr) minmax(240px, 2fr) minmax(90px, 1fr)',
+            gridTemplateRows: 'minmax(70px, 1fr) minmax(240px, 2fr) minmax(70px, 1fr)',
+          }}
+        >
+          {/* Felt table background */}
+          <div className="absolute inset-4 rounded-2xl bg-gradient-to-br from-emerald-900/40 to-emerald-950/60 border border-emerald-800/30 pointer-events-none" />
 
-          {/* Render each seat at its rotated view-side */}
-          {SEATS.map((seat) => {
-            const side = viewSides[seat];
-            const isMe = seat === mySeat;
-            const seatName = seatToName[seat] || seat;
-            const isDummySeatHere = dummy === seat && isDummyRevealed && phase === 'playing';
-            const cardSize = isMe ? myCardSize : isDummySeatHere ? dummyCardSize : otherCardSize;
-            const showHand = shouldShowHand(seat);
-            const isTurnNow = currentSeat === seat && phase !== 'finished';
-
-            const seatContent = (
-              <div className={`flex ${
-                isMe
-                  ? 'flex-col-reverse items-center gap-2'
-                  : isDummySeatHere
-                    ? side === 'left' || side === 'right'
-                      ? 'flex-col items-center gap-2'
-                      : 'flex-row items-center gap-3'
-                    : side === 'left' || side === 'right'
-                      ? 'flex-col items-center gap-2'
-                      : side === 'top'
-                        ? 'flex-col items-center gap-2'
-                        : 'flex-col-reverse items-center gap-2'
-              }`}>
-                {!isMe && (
-                  <div className="relative">
-                    <VideoTile
-                      stream={getStreamForSeat(seat)}
-                      displayName={seatName}
-                      seat={seat}
-                      isLocal={seatToUserId[seat] === myUserId}
-                      muted={!outputEnabled}
-                      className={isDummySeatHere ? dummyVideoSizeClass : otherVideoSizeClass}
-                    />
-                    {phase === 'bidding' && lastBidPerSeat[seat] && (
-                      <BidBadge bid={lastBidPerSeat[seat]!.bid} />
-                    )}
-                  </div>
-                )}
-                {showHand ? (
-                  dummy === seat && isDummyRevealed && phase === 'playing' ? (
-                    <DummyHandDisplay
-                      hand={getHand(seat)}
-                      rotation={dummyRotation}
-                      isTurn={isTurnNow}
-                      size={cardSize}
-                      trumpStrain={contract?.strain}
-                      onCardClick={getCardClickHandler(seat)}
-                      legalCards={getLegalCardsForDisplay(seat)}
-                    />
-                  ) : (
-                    <HandDisplay
-                      hand={getHand(seat)}
-                      seat={seat}
-                      hidden={false}
-                      size={cardSize}
-                      isDummy={dummy === seat && isDummyRevealed}
-                      isTurn={isTurnNow && phase === 'playing'}
-                      trumpStrain={contract?.strain}
-                      onCardClick={getCardClickHandler(seat)}
-                      legalCards={getLegalCardsForDisplay(seat)}
-                    />
-                  )
-                ) : (
-                  <CardBackFan size={cardSize} />
-                )}
-              </div>
-            );
-
-            return (
-              <SeatPosition
-                key={seat}
-                position={side}
-                isTurn={isTurnNow}
-                isDealer={dealer === seat}
-                isVulnerable={isVulnerable(seat, vulnerability)}
-                seatLabel={seat}
-                atEdge={isDummySeatHere}
-              >
-                {seatContent}
-              </SeatPosition>
-            );
-          })}
-
-          {/* Player's own webcam — fixed to the side so cards can be larger */}
-          {mySeat && (
-            <div className="absolute bottom-3 left-3 z-20">
-              <div className="relative">
-                <VideoTile
-                  stream={getStreamForSeat(mySeat)}
-                  displayName={seatToName[mySeat] || mySeat}
-                  seat={mySeat}
-                  isLocal
-                  muted
-                  className={myVideoSizeClass}
-                />
-                {phase === 'bidding' && lastBidPerSeat[mySeat] && (
-                  <BidBadge bid={lastBidPerSeat[mySeat]!.bid} />
-                )}
-              </div>
+          {/* Top seat */}
+          {seatBySide.top && (
+            <div style={{ gridArea: 'top' }} className="relative overflow-hidden flex justify-center items-end pb-2 z-10">
+              {renderSeatContent(seatBySide.top)}
             </div>
           )}
 
-          {/* Center: trick area / bidding area */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="pointer-events-auto max-h-full overflow-y-auto">
+          {/* Left seat */}
+          {seatBySide.left && (
+            <div style={{ gridArea: 'left' }} className="relative overflow-hidden flex items-center justify-end pr-2 z-10">
+              {renderSeatContent(seatBySide.left)}
+            </div>
+          )}
+
+          {/* Center: trick area / bidding area / scoring */}
+          <div style={{ gridArea: 'center' }} className="relative overflow-hidden flex items-center justify-center">
+            <div className="pointer-events-auto max-h-full overflow-y-auto flex items-center justify-center">
+
               {phase === 'bidding' && !passedOut && (
                 <div className="flex flex-col items-center gap-3 bg-slate-900/70 backdrop-blur-sm rounded-2xl p-4 border border-slate-700/40">
                   <div className="text-center">
@@ -486,18 +508,18 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
               )}
 
               {phase === 'playing' && playState && (
-                <div className="relative w-64 h-64 flex items-center justify-center">
+                <div className="relative flex items-center justify-center" style={{ width: trickAreaSize, height: trickAreaSize }}>
                   {(currentTrick.length > 0 ? currentTrick : (playState.lastCompletedTrick ?? [])).map((tc, i) => {
                     const side = viewSides[tc.seat];
                     const flyClass = `card-fly-in-${side}`;
                     return (
-                      <div key={`${tc.seat}-${tc.card.rank}${tc.card.suit}-${i}`} className={`absolute ${trickPositionClasses[side]} transition-all duration-300 ${flyClass}`}>
-                        <PlayedCard card={tc.card} seat={tc.seat} />
+                      <div key={`${tc.seat}-${tc.card.rank}${tc.card.suit}-${i}`} className={`absolute ${TRICK_POSITION_CLASSES[side]} transition-all duration-300 ${flyClass}`}>
+                        <PlayedCard card={tc.card} seat={tc.seat} cardWidth={playedCardW} />
                       </div>
                     );
                   })}
 
-                  <div className="text-center">
+                  <div className="text-center pointer-events-none">
                     <div className="flex gap-4 text-xs">
                       <div className="text-emerald-300">
                         NS: <span className="font-bold">{playState.tricksWonNS}</span>
@@ -537,9 +559,42 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
             </div>
           </div>
 
+          {/* Right seat */}
+          {seatBySide.right && (
+            <div style={{ gridArea: 'right' }} className="relative overflow-hidden flex items-center justify-start pl-2 z-10">
+              {renderSeatContent(seatBySide.right)}
+            </div>
+          )}
+
+          {/* Bottom seat */}
+          {seatBySide.bottom && (
+            <div style={{ gridArea: 'bottom' }} className="relative overflow-hidden flex justify-center items-start pt-2 z-10">
+              {renderSeatContent(seatBySide.bottom)}
+            </div>
+          )}
+
+          {/* Player's own webcam — fixed to the corner so it doesn't consume table space */}
+          {mySeat && (
+            <div className="absolute bottom-3 left-3 z-20">
+              <div className="relative" style={{ width: myVideoW }}>
+                <VideoTile
+                  stream={getStreamForSeat(mySeat)}
+                  displayName={seatToName[mySeat] || mySeat}
+                  seat={mySeat}
+                  isLocal
+                  muted
+                  className="w-full aspect-[4/3]"
+                />
+                {phase === 'bidding' && lastBidPerSeat[mySeat] && (
+                  <BidBadge bid={lastBidPerSeat[mySeat]!.bid} />
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Error display */}
           {error && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-red-600/90 text-white text-sm px-4 py-2 rounded-lg shadow-lg">
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-red-600/90 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-20">
               {error}
             </div>
           )}
@@ -563,7 +618,6 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
               onRespond={respondUndo}
             />
           )}
-          </div>
         </div>
 
         {/* Rubber results overlay */}
@@ -591,48 +645,31 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   );
 }
 
-interface SeatPositionProps {
-  position: ViewSide;
+interface SeatBadgeProps {
   isTurn: boolean;
   isDealer: boolean;
   isVulnerable: boolean;
   seatLabel: Seat;
-  atEdge?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
-function SeatPosition({ position, isTurn, isDealer, isVulnerable, seatLabel, atEdge, children }: SeatPositionProps) {
-  const positionClasses: Record<ViewSide, string> = {
-    top: 'top-2 left-1/2 -translate-x-1/2',
-    bottom: 'bottom-2 left-1/2 -translate-x-1/2',
-    left: 'left-2 top-1/2 -translate-y-1/2',
-    right: 'right-2 top-1/2 -translate-y-1/2',
-  };
-  const edgeClasses: Record<ViewSide, string> = {
-    top: 'top-0 left-1/2 -translate-x-1/2',
-    bottom: 'bottom-0 left-1/2 -translate-x-1/2',
-    left: 'left-0 top-1/2 -translate-y-1/2',
-    right: 'right-0 top-1/2 -translate-y-1/2',
-  };
-
+function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, children }: SeatBadgeProps) {
   return (
-    <div className={`absolute ${atEdge ? edgeClasses[position] : positionClasses[position]} ${isTurn ? 'z-10' : 'z-0'}`}>
-      <div className={`relative transition-all ${isTurn ? 'ring-2 ring-amber-400 rounded-xl p-1' : ''}`}>
-        <div className="absolute -top-2 left-1/2 -translate-x-1/2 text-[10px] font-bold text-slate-300 bg-slate-800/80 rounded px-1.5 py-0.5 z-10">
-          {seatLabel}
-        </div>
-        {isDealer && (
-          <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center z-10 shadow-md">
-            D
-          </div>
-        )}
-        {isVulnerable && (
-          <div className="absolute -bottom-2 -left-2 w-5 h-5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center z-10 shadow-md">
-            V
-          </div>
-        )}
-        {children}
+    <div className={`relative transition-all ${isTurn ? 'ring-2 ring-amber-400 rounded-xl p-1' : ''}`}>
+      <div className="absolute -top-2 left-1/2 -translate-x-1/2 text-[10px] font-bold text-slate-300 bg-slate-800/80 rounded px-1.5 py-0.5 z-10">
+        {seatLabel}
       </div>
+      {isDealer && (
+        <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center z-10 shadow-md">
+          D
+        </div>
+      )}
+      {isVulnerable && (
+        <div className="absolute -bottom-2 -left-2 w-5 h-5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center z-10 shadow-md">
+          V
+        </div>
+      )}
+      {children}
     </div>
   );
 }
