@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import type {
   Seat, Deal, AuctionEntry, Bid, Contract, PlayState,
   HandScore, RubberState, Vulnerability, TablePlayer, Card, Phase, Suit, UndoRequest,
+  MatchState, HandRole,
 } from '@/types/bridge';
 import {
   sideOfSeat, isVulnerable, SEATS,
@@ -22,6 +23,8 @@ import {
   scoreHand, updateRubberState, createInitialRubberState,
 } from '@/lib/scoring';
 import { playTurnNotification } from '@/lib/sound';
+import { scheduleHand } from '@/lib/matchSchedule';
+import { computeImpResult, rawScoreForNS } from '@/lib/impScoring';
 
 interface GameContextValue {
   gameId: string | null;
@@ -50,6 +53,8 @@ interface GameContextValue {
   respondUndo: (accept: boolean) => Promise<void>;
   startNewHand: () => Promise<void>;
   startNewRubber: () => Promise<void>;
+  handRole: HandRole;
+  matchState: MatchState;
   loading: boolean;
   error: string | null;
 }
@@ -86,6 +91,13 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const handVersionRef = useRef(0);
   const [currentHandId, setCurrentHandId] = useState<string | null>(null);
   const [bidUndoRequest, setBidUndoRequest] = useState<UndoRequest | null>(null);
+  const [handRole, setHandRole] = useState<HandRole>('original');
+  const [matchState, setMatchState] = useState<MatchState>({
+    totalImpsA: 0,
+    totalImpsB: 0,
+    boardNumber: 0,
+    completedBoards: [],
+  });
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
@@ -161,12 +173,19 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       return;
     }
 
-    // Load overall scores from the table
+    // Load overall scores and match IMPs from the table
     const { data: tableData } = await supabase
       .from('tables')
-      .select('overall_ns_total, overall_ew_total, rubber_number')
+      .select('overall_ns_total, overall_ew_total, rubber_number, match_imps_a, match_imps_b, match_board_number')
       .eq('id', tableId)
       .maybeSingle();
+
+    setMatchState({
+      totalImpsA: tableData?.match_imps_a ?? 0,
+      totalImpsB: tableData?.match_imps_b ?? 0,
+      boardNumber: tableData?.match_board_number ?? 0,
+      completedBoards: [],
+    });
 
     const rs: RubberState = {
       nsGamesWon: game.ns_games_won,
@@ -237,6 +256,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       }
 
       setBidUndoRequest((hand.bid_undo_request as UndoRequest | undefined) ?? null);
+      setHandRole((hand.hand_role as HandRole | undefined) ?? 'original');
     }
 
     setLoading(false);
@@ -284,6 +304,50 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     };
   }, [gameId, loadGameState, tableId]);
 
+  // Determine the schedule for a hand: original vs replay, and which original to replay
+  const getHandSchedule = useCallback(async (hNum: number): Promise<{
+    role: HandRole;
+    originalHandId: string | null;
+  }> => {
+    // Fetch all original hands that have been played (phase = scoring/finished)
+    // and don't have a replay yet
+    const { data: allHands } = await supabase
+      .from('hands')
+      .select('id, hand_number, hand_role, phase, original_hand_id')
+      .eq('game_id', gameId)
+      .order('hand_number', { ascending: true });
+
+    // Find original hands (hand_role = 'original') that have completed
+    // and don't have a corresponding replay yet
+    const completedOriginals: number[] = [];
+    const replayedOriginals = new Set<number>();
+
+    for (const h of allHands ?? []) {
+      if (h.hand_role === 'original' && (h.phase === 'scoring' || h.phase === 'finished')) {
+        completedOriginals.push(h.hand_number);
+      }
+      if (h.hand_role === 'replay' && h.original_hand_id) {
+        // Find the original hand_number for this replay
+        const orig = (allHands ?? []).find(o => o.id === h.original_hand_id);
+        if (orig) replayedOriginals.add(orig.hand_number);
+      }
+    }
+
+    const replayable = completedOriginals.filter(n => !replayedOriginals.has(n));
+    const sched = scheduleHand(hNum, replayable);
+
+    // If it's a replay, find the hand_id of the original
+    let originalHandId: string | null = null;
+    if (sched.role === 'replay' && sched.originalHandNumber !== null) {
+      const orig = (allHands ?? []).find(
+        h => h.hand_number === sched.originalHandNumber && h.hand_role === 'original'
+      );
+      originalHandId = orig?.id ?? null;
+    }
+
+    return { role: sched.role, originalHandId };
+  }, [gameId]);
+
   // Create a new hand
   const createNewHand = useCallback(async (hNum: number) => {
     if (creatingHandRef.current) return null;
@@ -297,20 +361,28 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
           : rubberState.ewGamesWon > 0 ? 'EW'
             : 'none';
 
+    const { role, originalHandId } = await getHandSchedule(hNum);
+
+    const rpcParams: Record<string, unknown> = {
+      p_game_id: gameId,
+      p_hand_number: hNum,
+      p_dealer: newDealer,
+      p_vulnerability: vul,
+      p_hand_role: role,
+    };
+    if (role === 'replay' && originalHandId) {
+      rpcParams.p_original_hand_id = originalHandId;
+    }
+
     const { data: hand, error: handError } = await supabase
-      .rpc('create_bridge_hand', {
-        p_game_id: gameId,
-        p_hand_number: hNum,
-        p_dealer: newDealer,
-        p_vulnerability: vul,
-      });
+      .rpc('create_bridge_hand', rpcParams);
 
     creatingHandRef.current = false;
     if (handError && handError.code !== '23505') {
-      setError('The first hand could not be dealt. Please try again.');
+      setError('The hand could not be dealt. Please try again.');
     }
     return (hand as string | null) ?? null;
-  }, [gameId, rubberState.nsGamesWon, rubberState.ewGamesWon]);
+  }, [gameId, rubberState.nsGamesWon, rubberState.ewGamesWon, getHandSchedule]);
 
   // Any seated player may deal the first hand; the unique constraint prevents duplicates.
   useEffect(() => {
@@ -543,6 +615,73 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     }
     if (newLastScore) {
       updateData.score = newLastScore;
+    }
+
+    // If this was a replay hand and it just completed, compute IMPs
+    if (isPlayComplete(updatedPlayState) && handRole === 'replay' && newContract) {
+      // Find the original hand to compare scores
+      const { data: replayHand } = await supabase
+        .from('hands')
+        .select('original_hand_id')
+        .eq('id', currentHandId)
+        .maybeSingle();
+
+      if (replayHand?.original_hand_id) {
+        const { data: origHand } = await supabase
+          .from('hands')
+          .select('contract, vulnerability, score, hand_number')
+          .eq('id', replayHand.original_hand_id)
+          .maybeSingle();
+
+        if (origHand?.contract) {
+          const origContract = origHand.contract as Contract;
+          const replayContract = newContract;
+          const origVul = (origHand.vulnerability ?? vulnerability) as Vulnerability;
+
+          const imps = computeImpResult(origContract, replayContract, origVul);
+          const origNsScore = rawScoreForNS(origContract, origVul);
+          const replayNsScore = rawScoreForNS(replayContract, origVul);
+          const netPoints = origNsScore + replayNsScore; // from NS perspective, but replay is swapped
+          // Team A = originally N+S. In original, team A = NS. In replay, team A = EW (swapped).
+          // computeImpResult already handles the swap: positive imps = Team A wins.
+          const impResult = {
+            originalHandId: replayHand.original_hand_id,
+            replayHandId: currentHandId,
+            netPoints,
+            imps,
+            teamAIsNS: true,
+          };
+
+          updateData.imp_result = impResult;
+
+          // Update match scores on the table
+          const { data: freshTable } = await supabase
+            .from('tables')
+            .select('match_imps_a, match_imps_b, match_board_number')
+            .eq('id', tableId)
+            .maybeSingle();
+
+          const newImpsA = (freshTable?.match_imps_a ?? 0) + imps;
+          const newImpsB = (freshTable?.match_imps_b ?? 0) - imps;
+          const newBoardNum = (freshTable?.match_board_number ?? 0) + 1;
+
+          await supabase
+            .from('tables')
+            .update({
+              match_imps_a: newImpsA,
+              match_imps_b: newImpsB,
+              match_board_number: newBoardNum,
+            })
+            .eq('id', tableId);
+
+          setMatchState(prev => ({
+            ...prev,
+            totalImpsA: newImpsA,
+            totalImpsB: newImpsB,
+            boardNumber: newBoardNum,
+          }));
+        }
+      }
     }
 
     const handSaved = await updateHand(currentHandId, updateData);
@@ -803,6 +942,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     setLastScore(null);
     setPassedOut(false);
     setBidUndoRequest(null);
+    setHandRole('original');
 
     await supabase
       .from('games')
@@ -924,6 +1064,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     respondUndo,
     startNewHand,
     startNewRubber,
+    handRole,
+    matchState,
     loading,
     error,
   };

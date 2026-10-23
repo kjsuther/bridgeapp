@@ -52,6 +52,23 @@ export interface HandScore {
   summary: string;
 }
 
+export type HandRole = 'original' | 'replay';
+
+export interface ImpResult {
+  originalHandId: string;
+  replayHandId: string | null;
+  netPoints: number;
+  imps: number;
+  teamAIsNS: boolean;
+}
+
+export interface MatchState {
+  totalImpsA: number;
+  totalImpsB: number;
+  boardNumber: number;
+  completedBoards: ImpResult[];
+}
+
 export interface RubberState {
   nsGamesWon: number;
   ewGamesWon: number;

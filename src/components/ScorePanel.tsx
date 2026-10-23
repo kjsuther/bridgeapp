@@ -1,8 +1,8 @@
 import { useGame } from '@/context/GameContext';
-import { Trophy, ArrowRight, RotateCw } from 'lucide-react';
+import { Trophy, ArrowRight, RotateCw, Scale } from 'lucide-react';
 
 export function ScorePanel() {
-  const { rubberState, lastScore, phase, contract, vulnerability, handNumber } = useGame();
+  const { rubberState, lastScore, phase, contract, vulnerability, handNumber, matchState, handRole } = useGame();
 
   const nsGameLine = rubberState.nsGamesWon;
   const ewGameLine = rubberState.ewGamesWon;
@@ -69,6 +69,25 @@ export function ScorePanel() {
           </div>
         </div>
       )}
+
+      <div className="bg-slate-900/50 border border-amber-700/30 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <Scale className="w-3.5 h-3.5 text-amber-400" />
+            <p className="text-xs text-slate-400 font-medium">IMP Match</p>
+          </div>
+          <span className="text-xs text-slate-500">
+            {handRole === 'replay' ? 'Replay' : 'Original'} &middot; Board {matchState.boardNumber}
+          </span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-emerald-300">Team A (N-S): <span className="font-bold">{matchState.totalImpsA > 0 ? '+' : ''}{matchState.totalImpsA}</span></span>
+          <span className="text-blue-300">Team B (E-W): <span className="font-bold">{matchState.totalImpsB > 0 ? '+' : ''}{matchState.totalImpsB}</span></span>
+        </div>
+        {matchState.boardNumber > 0 && (
+          <p className="text-xs text-slate-500 mt-1">{matchState.boardNumber} board{matchState.boardNumber !== 1 ? 's' : ''} completed</p>
+        )}
+      </div>
     </div>
   );
 }

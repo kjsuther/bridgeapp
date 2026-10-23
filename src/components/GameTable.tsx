@@ -89,6 +89,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     mySeat, players, deal, dealer, vulnerability, auction, contract,
     playState, phase, passedOut, isMyTurn, currentSeat,
     legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading, rubberState,
+    handRole, matchState,
   } = game;
 
   const myUserId = profile?.id ?? '';
@@ -397,6 +398,13 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
         <div className="flex items-center gap-3 text-xs">
           <span className="text-slate-400">Dealer: <span className="text-white font-medium">{dealer}</span></span>
           <span className="text-slate-400">Vul: <span className="text-white font-medium">{vulText}</span></span>
+          <span className={`px-2 py-0.5 rounded-full font-medium ${
+            handRole === 'replay'
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+          }`}>
+            {handRole === 'replay' ? 'Replay' : 'Original'}
+          </span>
           {contract && (
             <span className="text-slate-400">Contract: <span className="text-emerald-400 font-medium">
               {contract.level}{contract.strain === 'NT' ? 'NT' : SUIT_SYMBOLS[contract.strain as Suit]}{contract.doubled === 1 ? 'X' : contract.doubled === 2 ? 'XX' : ''} by {contract.declarer}
