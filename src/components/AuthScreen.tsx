@@ -102,9 +102,9 @@ export function AuthScreen() {
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     required
-                    maxLength={6}
+                    maxLength={8}
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-900/70 border border-slate-700 rounded-lg text-white text-center text-2xl tracking-[0.5em] placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
-                    placeholder="000000"
+                    placeholder="00000000"
                     autoFocus
                   />
                 </div>
