@@ -1,18 +1,18 @@
 /*
  * Duplicate IMP match hand scheduling.
  *
- * Match structure:
- *   Hands 1-10:  original hands (freshly dealt, played normally)
- *   Hands 11-20: replay hands — hand N+10 replays hand N with seats swapped
- *   Hands 21+:   alternating — odd hands are new originals; the next even hand
- *                replays the oldest played original that hasn't been replayed yet
+ * Match structure (with configurable N = newHandsBeforeReplay):
+ *   Hands 1..N:     all new "original" hands, dealt fresh
+ *   Hands N+1 onward: alternating — first a replay of the oldest unreplayed
+ *                     original, then a new original, then a replay, then new...
  *
- * In the "alternating" phase (hand 21+):
- *   hand 21 = new original (board 11)
- *   hand 22 = replay of hand 1 (oldest unreplayed original)
- *   hand 23 = new original (board 12)
- *   hand 24 = replay of hand 2
- *   ...and so on
+ * Example with N=10:
+ *   hand 1-10  = new originals (boards 1-10)
+ *   hand 11    = replay of hand 1
+ *   hand 12    = new original (board 11)
+ *   hand 13    = replay of hand 2
+ *   hand 14    = new original (board 12)
+ *   ...forever
  */
 
 import type { HandRole } from '@/types/bridge';
@@ -24,20 +24,23 @@ export interface HandSchedule {
 }
 
 /**
- * Given the current hand number (1-indexed) and the number of original hands
- * that have already been played and are available for replay, determine what
- * the next hand should be.
+ * Given the current hand number (1-indexed), the number of new hands that must
+ * be played before replays start, and the list of original hand numbers that
+ * have been played but not yet replayed (oldest first), determine what the
+ * next hand should be.
  *
  * @param handNumber - the hand about to be created (1-indexed)
- * @param replayableOriginals - array of original hand numbers that have been
- *   played but not yet replayed, in chronological order (oldest first)
+ * @param newHandsBeforeReplay - how many new hands before replays begin
+ * @param replayableOriginals - original hand numbers played but not yet replayed,
+ *   in chronological order (oldest first)
  */
 export function scheduleHand(
   handNumber: number,
+  newHandsBeforeReplay: number,
   replayableOriginals: number[],
 ): HandSchedule {
-  // Phase 1: hands 1-10 are all originals
-  if (handNumber <= 10) {
+  // Phase 1: first N hands are all new originals
+  if (handNumber <= newHandsBeforeReplay) {
     return {
       role: 'original',
       originalHandNumber: null,
@@ -45,44 +48,26 @@ export function scheduleHand(
     };
   }
 
-  // Phase 2: hands 11-20 replay hands 1-10 respectively
-  if (handNumber >= 11 && handNumber <= 20) {
-    const origNum = handNumber - 10;
+  // Phase 2: alternating replay / new, starting with a replay
+  const altIndex = handNumber - newHandsBeforeReplay - 1; // 0-indexed
+  const isReplay = altIndex % 2 === 0;
+
+  if (isReplay) {
+    const replayIdx = Math.floor(altIndex / 2); // 0, 1, 2, ...
+    const origNum = replayableOriginals[replayIdx] ?? null;
     return {
       role: 'replay',
       originalHandNumber: origNum,
-      boardNumber: origNum,
+      boardNumber: origNum ?? 0,
     };
   }
 
-  // Phase 3: hands 21+ alternate new original / replay oldest
-  const phase3Hand = handNumber - 20; // 1-indexed within phase 3
-  const isOdd = phase3Hand % 2 === 1;
-
-  if (isOdd) {
-    // New original: board number = 10 + (phase3Hand + 1) / 2
-    const boardNum = 10 + (phase3Hand + 1) / 2;
-    return {
-      role: 'original',
-      originalHandNumber: null,
-      boardNumber: boardNum,
-    };
-  }
-
-  // Replay: pick the oldest unreplayed original from the queue
-  const replayIdx = phase3Hand / 2 - 1; // 0-indexed: 0, 1, 2, ...
-  const origNum = replayableOriginals[replayIdx] ?? null;
+  // New original: board number continues after the initial N
+  const newCount = Math.floor(altIndex / 2) + 1; // 1, 2, 3, ...
+  const boardNum = newHandsBeforeReplay + newCount;
   return {
-    role: 'replay',
-    originalHandNumber: origNum,
-    boardNumber: origNum ?? 0,
+    role: 'original',
+    originalHandNumber: null,
+    boardNumber: boardNum,
   };
-}
-
-/**
- * After a replay hand completes, compute the board number for display.
- * The board number is just the original hand's number.
- */
-export function boardNumberForReplay(originalHandNumber: number): number {
-  return originalHandNumber;
 }

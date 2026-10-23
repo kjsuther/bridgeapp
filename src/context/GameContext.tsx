@@ -98,6 +98,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     boardNumber: 0,
     completedBoards: [],
   });
+  const [newHandsBeforeReplay, setNewHandsBeforeReplay] = useState(10);
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
@@ -176,7 +177,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     // Load overall scores and match IMPs from the table
     const { data: tableData } = await supabase
       .from('tables')
-      .select('overall_ns_total, overall_ew_total, rubber_number, match_imps_a, match_imps_b, match_board_number')
+      .select('overall_ns_total, overall_ew_total, rubber_number, match_imps_a, match_imps_b, match_board_number, new_hands_before_replay')
       .eq('id', tableId)
       .maybeSingle();
 
@@ -186,6 +187,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       boardNumber: tableData?.match_board_number ?? 0,
       completedBoards: [],
     });
+    setNewHandsBeforeReplay(tableData?.new_hands_before_replay ?? 10);
 
     const rs: RubberState = {
       nsGamesWon: game.ns_games_won,
@@ -334,7 +336,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     }
 
     const replayable = completedOriginals.filter(n => !replayedOriginals.has(n));
-    const sched = scheduleHand(hNum, replayable);
+    const sched = scheduleHand(hNum, newHandsBeforeReplay, replayable);
 
     // If it's a replay, find the hand_id of the original
     let originalHandId: string | null = null;
@@ -346,7 +348,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     }
 
     return { role: sched.role, originalHandId };
-  }, [gameId]);
+  }, [gameId, newHandsBeforeReplay]);
 
   // Create a new hand
   const createNewHand = useCallback(async (hNum: number) => {
@@ -942,7 +944,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     setLastScore(null);
     setPassedOut(false);
     setBidUndoRequest(null);
-    setHandRole('original');
 
     await supabase
       .from('games')

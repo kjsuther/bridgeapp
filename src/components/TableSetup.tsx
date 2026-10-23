@@ -34,13 +34,14 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
   const [allProfiles, setAllProfiles] = useState<ProfileOption[]>([]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [newHandsBeforeReplay, setNewHandsBeforeReplay] = useState(10);
 
   const isHost = hostId === profile?.id;
 
   const loadState = useCallback(async () => {
     const { data: tableData } = await supabase
       .from('tables')
-      .select('name, status, host_id')
+      .select('name, status, host_id, new_hands_before_replay')
       .eq('id', tableId)
       .maybeSingle();
 
@@ -48,6 +49,7 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
       setTableName(tableData.name);
       setTableStatus(tableData.status);
       setHostId(tableData.host_id);
+      setNewHandsBeforeReplay(tableData.new_hands_before_replay ?? 10);
 
       // Get host display name
       const { data: hostProfile } = await supabase
@@ -351,6 +353,36 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
               </span>
             )}
           </div>
+
+          {isHost && tableStatus !== 'playing' && (
+            <div className="mt-4 flex items-center gap-3 bg-slate-900/40 rounded-lg border border-slate-700/30 px-4 py-3">
+              <label htmlFor="newHandsInput" className="text-sm text-slate-300 whitespace-nowrap">
+                New hands before replays:
+              </label>
+              <input
+                id="newHandsInput"
+                type="number"
+                min={1}
+                max={99}
+                value={newHandsBeforeReplay}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (!isNaN(v) && v >= 1) setNewHandsBeforeReplay(v);
+                }}
+                onBlur={() => {
+                  supabase
+                    .from('tables')
+                    .update({ new_hands_before_replay: newHandsBeforeReplay })
+                    .eq('id', tableId)
+                    .then(() => loadState());
+                }}
+                className="w-20 px-3 py-1.5 bg-slate-900/70 border border-slate-700 rounded-lg text-white text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              />
+              <span className="text-xs text-slate-500">
+                After this many new hands, the match alternates between replaying old deals (with seats swapped) and new ones.
+              </span>
+            </div>
+          )}
 
           {isHost ? (
             <button
