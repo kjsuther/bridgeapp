@@ -109,14 +109,12 @@ export function jsonToDeal(json: Record<string, string[]>): Deal {
   return deal;
 }
 
-export const VULNERABILITY_CYCLE: Vulnerability[] = [
-  'none', 'NS', 'EW', 'both', 'NS', 'EW', 'both', 'none',
-  'EW', 'both', 'none', 'NS', 'both', 'none', 'NS', 'EW',
-];
-
+// Standard duplicate bridge vulnerability: cycles every 4 boards
+// Board 1: None, Board 2: NS, Board 3: EW, Board 4: Both, then repeats
 export function vulnerabilityForHand(handNumber: number): Vulnerability {
-  const idx = (handNumber - 1) % VULNERABILITY_CYCLE.length;
-  return VULNERABILITY_CYCLE[idx];
+  const idx = (handNumber - 1) % 4;
+  const cycle: Vulnerability[] = ['none', 'NS', 'EW', 'both'];
+  return cycle[idx];
 }
 
 export function dealerForHand(handNumber: number, firstDealer: Seat): Seat {

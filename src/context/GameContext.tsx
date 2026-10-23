@@ -3,14 +3,14 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import type {
   Seat, Deal, AuctionEntry, Bid, Contract, PlayState,
-  HandScore, RubberState, Vulnerability, TablePlayer, Card, Phase, Suit, UndoRequest,
+  HandScore, Vulnerability, TablePlayer, Card, Phase, Suit, UndoRequest,
   MatchState, HandRole,
 } from '@/types/bridge';
 import {
   sideOfSeat, isVulnerable, SEATS,
 } from '@/types/bridge';
 import {
-  jsonToDeal, sortHand, dealerForHand,
+  jsonToDeal, sortHand, dealerForHand, vulnerabilityForHand,
 } from '@/lib/dealing';
 import {
   isValidBid, isAuctionComplete, isPassedOut, determineContract, getBidderSeat,
@@ -20,7 +20,7 @@ import {
   createInitialPlayState, trickWinner, dummySeat, revertLastPlay,
 } from '@/lib/play';
 import {
-  scoreHand, updateRubberState, createInitialRubberState,
+  scoreHand,
 } from '@/lib/scoring';
 import { playTurnNotification } from '@/lib/sound';
 import { scheduleHand } from '@/lib/matchSchedule';
@@ -38,7 +38,6 @@ interface GameContextValue {
   contract: Contract | null;
   playState: PlayState | null;
   phase: Phase;
-  rubberState: RubberState;
   lastScore: HandScore | null;
   passedOut: boolean;
   handNumber: number;
@@ -52,7 +51,6 @@ interface GameContextValue {
   bidUndoRequest: UndoRequest | null;
   respondUndo: (accept: boolean) => Promise<void>;
   startNewHand: () => Promise<void>;
-  startNewRubber: () => Promise<void>;
   handRole: HandRole;
   matchState: MatchState;
   loading: boolean;
@@ -77,12 +75,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const [contract, setContract] = useState<Contract | null>(null);
   const [playState, setPlayState] = useState<PlayState | null>(null);
   const [phase, setPhase] = useState<Phase>('bidding');
-  const [rubberState, setRubberState] = useState<RubberState>(() => ({
-    ...createInitialRubberState(),
-    rubberNumber: 1,
-    overallNsTotal: 0,
-    overallEwTotal: 0,
-  }));
   const [lastScore, setLastScore] = useState<HandScore | null>(null);
   const [passedOut, setPassedOut] = useState(false);
   const [handNumber, setHandNumber] = useState(1);
@@ -175,7 +167,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
         .maybeSingle(),
       supabase
         .from('tables')
-        .select('overall_ns_total, overall_ew_total, rubber_number, match_imps_a, match_imps_b, match_board_number, new_hands_before_replay')
+        .select('match_imps_a, match_imps_b, match_board_number, new_hands_before_replay')
         .eq('id', tableId)
         .maybeSingle(),
       supabase
@@ -202,24 +194,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       completedBoards: [],
     });
     setNewHandsBeforeReplay(tableData?.new_hands_before_replay ?? 10);
-
-    const rs: RubberState = {
-      nsGamesWon: game.ns_games_won,
-      ewGamesWon: game.ew_games_won,
-      nsAbove: game.ns_above,
-      ewAbove: game.ew_above,
-      nsBelowCurrent: game.ns_below_current,
-      ewBelowCurrent: game.ew_below_current,
-      nsBelowCompleted: game.ns_below_completed ?? 0,
-      ewBelowCompleted: game.ew_below_completed ?? 0,
-      nsTotal: game.ns_total,
-      ewTotal: game.ew_total,
-      rubberComplete: game.status === 'finished',
-      rubberNumber: game.rubber_number ?? 1,
-      overallNsTotal: tableData?.overall_ns_total ?? 0,
-      overallEwTotal: tableData?.overall_ew_total ?? 0,
-    };
-    setRubberState(rs);
     setHandNumber(game.hand_number);
 
     if (hands && hands.length > 0) {
@@ -385,11 +359,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
     const firstDealer: Seat = 'N';
     const newDealer = dealerForHand(hNum, firstDealer);
-    const vul: Vulnerability =
-      rubberState.nsGamesWon > 0 && rubberState.ewGamesWon > 0 ? 'both'
-        : rubberState.nsGamesWon > 0 ? 'NS'
-          : rubberState.ewGamesWon > 0 ? 'EW'
-            : 'none';
+    const vul: Vulnerability = vulnerabilityForHand(hNum);
 
     const { role, originalHandId } = await getHandSchedule(hNum);
 
@@ -412,7 +382,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       setError('The hand could not be dealt. Please try again.');
     }
     return (hand as string | null) ?? null;
-  }, [gameId, rubberState.nsGamesWon, rubberState.ewGamesWon, getHandSchedule]);
+  }, [gameId, getHandSchedule]);
 
   // Any seated player may deal the first hand; the unique constraint prevents duplicates.
   useEffect(() => {
@@ -531,7 +501,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     let newPhase: Phase = 'playing';
     let newContract = contract;
     let newLastScore: HandScore | null = lastScore;
-    let newRubber = rubberState;
 
     // Reveal dummy after the opening lead (first card of the first trick)
     if (!newPlayState.dummyRevealed && contract) {
@@ -558,81 +527,10 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
         const score = scoreHand(finalContract, vulnerability);
         newLastScore = score;
-
-        // Re-read the latest rubber state from the database to avoid stale closures
-        // that lose points from previously completed hands.
-        const { data: freshGame } = await supabase
-          .from('games')
-          .select('*')
-          .eq('id', gameId)
-          .maybeSingle();
-
-        const freshRubber: RubberState = freshGame ? {
-          nsGamesWon: freshGame.ns_games_won,
-          ewGamesWon: freshGame.ew_games_won,
-          nsAbove: freshGame.ns_above,
-          ewAbove: freshGame.ew_above,
-          nsBelowCurrent: freshGame.ns_below_current,
-          ewBelowCurrent: freshGame.ew_below_current,
-          nsBelowCompleted: freshGame.ns_below_completed ?? 0,
-          ewBelowCompleted: freshGame.ew_below_completed ?? 0,
-          nsTotal: freshGame.ns_total,
-          ewTotal: freshGame.ew_total,
-          rubberComplete: freshGame.status === 'finished',
-          rubberNumber: freshGame.rubber_number ?? 1,
-          overallNsTotal: rubberState.overallNsTotal,
-          overallEwTotal: rubberState.overallEwTotal,
-        } : rubberState;
-
-        const { newState: updatedRubber, rubberComplete } = updateRubberState(freshRubber, score);
-        newRubber = updatedRubber;
-
-        // Update game state
-        const gameUpdate: Record<string, unknown> = {
-          ns_games_won: updatedRubber.nsGamesWon,
-          ew_games_won: updatedRubber.ewGamesWon,
-          ns_above: updatedRubber.nsAbove,
-          ew_above: updatedRubber.ewAbove,
-          ns_below_current: updatedRubber.nsBelowCurrent,
-          ew_below_current: updatedRubber.ewBelowCurrent,
-          ns_below_completed: updatedRubber.nsBelowCompleted,
-          ew_below_completed: updatedRubber.ewBelowCompleted,
-          ns_total: updatedRubber.nsTotal,
-          ew_total: updatedRubber.ewTotal,
-        };
-
-        if (rubberComplete) {
-          gameUpdate.status = 'finished';
-          gameUpdate.ended_at = new Date().toISOString();
-          newPhase = 'finished';
-
-          // Update overall scores on the table
-          const overallNs = (rubberState.overallNsTotal ?? 0) + updatedRubber.nsTotal;
-          const overallEw = (rubberState.overallEwTotal ?? 0) + updatedRubber.ewTotal;
-          const nextRubberNumber = (rubberState.rubberNumber ?? 1) + 1;
-
-          await supabase
-            .from('tables')
-            .update({
-              overall_ns_total: overallNs,
-              overall_ew_total: overallEw,
-              rubber_number: nextRubberNumber,
-            })
-            .eq('id', tableId);
-        }
-
-        await supabase.from('games').update(gameUpdate).eq('id', gameId);
-
         newContract = finalContract;
       }
 
       setLastScore(newLastScore);
-      setRubberState({
-        ...newRubber,
-        rubberNumber: rubberState.rubberNumber,
-        overallNsTotal: rubberState.overallNsTotal,
-        overallEwTotal: rubberState.overallEwTotal,
-      });
     }
 
     const updateData: Record<string, unknown> = {
@@ -729,7 +627,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     setPlayState(updatedPlayState);
     setPhase(newPhase);
     setContract(newContract);
-  }, [mySeat, currentHandId, playState, deal, contract, vulnerability, lastScore, rubberState, gameId, tableId, updateHand]);
+  }, [mySeat, currentHandId, playState, deal, contract, vulnerability, lastScore, handRole, gameId, tableId, updateHand]);
 
   // --- Undo logic ---
   // Any player on the side that played the last card may request an undo.
@@ -984,44 +882,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     await loadGameState();
   }, [mySeat, handNumber, gameId, createNewHand, loadGameState]);
 
-  const startNewRubber = useCallback(async () => {
-    if (!mySeat) return;
-
-    const nextRubberNumber = (rubberState.rubberNumber ?? 1) + 1;
-
-    const { data: newGame } = await supabase
-      .from('games')
-      .insert({
-        table_id: tableId,
-        status: 'active',
-        hand_number: 1,
-        rubber_number: nextRubberNumber,
-      })
-      .select('id')
-      .maybeSingle();
-
-    if (newGame) {
-      setGameId(newGame.id);
-      setHandNumber(1);
-      setAuction([]);
-      setContract(null);
-      setPlayState(null);
-      setPhase('bidding');
-      setLastScore(null);
-      setPassedOut(false);
-      setBidUndoRequest(null);
-      setRubberState({
-        ...createInitialRubberState(),
-        rubberNumber: nextRubberNumber,
-        overallNsTotal: rubberState.overallNsTotal,
-        overallEwTotal: rubberState.overallEwTotal,
-      });
-      setCurrentHandId(null);
-      setDeal(null);
-      creatingHandRef.current = false;
-    }
-  }, [mySeat, tableId, rubberState]);
-
   // Derived state
   const currentSeat = phase === 'bidding'
     ? (auction.length === 0 ? dealer : getBidderSeat(auction, dealer ?? 'N'))
@@ -1081,7 +941,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     contract,
     playState,
     phase,
-    rubberState,
     lastScore,
     passedOut,
     handNumber,
@@ -1095,7 +954,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     bidUndoRequest,
     respondUndo,
     startNewHand,
-    startNewRubber,
     handRole,
     matchState,
     loading,

@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { VideoTile } from '@/components/VideoTile';
 import { HandDisplay, PlayedCard, CardBackFan, DummyHandDisplay } from '@/components/CardDisplay';
 import { BiddingPanel, AuctionHistory } from '@/components/BiddingPanel';
-import { ScorePanel, NextHandButton, RubberResultsOverlay } from '@/components/ScorePanel';
+import { ScorePanel, NextHandButton } from '@/components/ScorePanel';
 import { DoubleDummyReview } from '@/components/DoubleDummyReview';
 import { sortHand, dummySeat, isVulnerable } from '@/context/GameContext';
 import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/bridge';
@@ -88,7 +88,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   const {
     mySeat, players, deal, dealer, vulnerability, auction, contract,
     playState, phase, passedOut, isMyTurn, currentSeat,
-    legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading, rubberState,
+    legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading,
     handRole, matchState,
   } = game;
 
@@ -566,7 +566,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                 </div>
               )}
 
-              {(phase === 'scoring' || phase === 'finished') && !rubberState.rubberComplete && (
+              {(phase === 'scoring' || phase === 'finished') && (
                 <div className="flex flex-col items-center gap-2 max-h-full overflow-y-auto p-1">
                   {passedOut ? (
                     <div className="bg-slate-800/80 rounded-xl p-4 text-center shrink-0">
@@ -674,9 +674,6 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
             />
           )}
         </div>
-
-        {/* Rubber results overlay */}
-        <RubberResultsOverlay />
 
         {/* Right sidebar: scoreboard */}
         <div className="w-72 lg:w-80 xl:w-96 bg-slate-900/80 backdrop-blur border-l border-slate-700/50 p-3 hidden lg:block overflow-y-auto">
