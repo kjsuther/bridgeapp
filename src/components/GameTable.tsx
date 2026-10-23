@@ -13,7 +13,7 @@ import { getLegalCards } from '@/lib/play';
 import {
   Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X,
 } from 'lucide-react';
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 interface GameTableProps {
   tableId: string;
@@ -67,12 +67,12 @@ function dummyHandFactors(hand: Card[]) {
   return { widthFactor, heightFactor };
 }
 
-function computeDummyCardW(zoneW: number, zoneH: number, isRotated: boolean, hand: Card[]): number {
+function computeDummyCardW(zoneW: number, zoneH: number, isRotated: boolean, hand: Card[], maxW = 110): number {
   const { widthFactor, heightFactor } = dummyHandFactors(hand);
   if (isRotated) {
-    return Math.max(28, Math.min(zoneW / heightFactor, zoneH / widthFactor, 110));
+    return Math.max(28, Math.min(zoneW / heightFactor, zoneH / widthFactor, maxW));
   }
-  return Math.max(28, Math.min(zoneW / widthFactor, zoneH / heightFactor, 110));
+  return Math.max(28, Math.min(zoneW / widthFactor, zoneH / heightFactor, maxW));
 }
 
 const TRICK_POSITION_CLASSES: Record<ViewSide, string> = {
@@ -128,6 +128,12 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     }
     return played;
   }, [playState]);
+
+  const [dummyExpanded, setDummyExpanded] = useState(false);
+
+  useEffect(() => {
+    setDummyExpanded(false);
+  }, [currentSeat, phase, playState?.trickNumber]);
 
   const viewSides = useMemo<Record<Seat, ViewSide>>(
     () => (mySeat ? rotationFor(mySeat) : { S: 'bottom', W: 'left', N: 'top', E: 'right' }),
@@ -309,6 +315,10 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     }
   }
 
+  const dummyOverlayCardW = dummy && isDummyRevealed && phase === 'playing'
+    ? computeDummyCardW(w * 0.85, h * 0.75, false, getHand(dummy), 130)
+    : 80;
+
   const otherCardW = Math.max(30, Math.min(52, edgeW * 0.35, edgeH * 0.28));
   const playedCardW = Math.max(44, Math.min(centerW * 0.22, centerH * 0.22, 88));
   const trickAreaSize = Math.max(200, Math.min(centerW * 0.75, centerH * 0.75, 300));
@@ -353,15 +363,21 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           )}
           {showHand ? (
             dummy === seat && isDummyRevealed && phase === 'playing' ? (
-              <DummyHandDisplay
-                hand={getHand(seat)}
-                rotation={dummyRotation}
-                isTurn={isTurnNow}
-                cardWidth={cardW}
-                trumpStrain={contract?.strain}
-                onCardClick={getCardClickHandler(seat)}
-                legalCards={getLegalCardsForDisplay(seat)}
-              />
+              <div
+                onClick={canPlayForSeat(seat) && !dummyExpanded ? () => setDummyExpanded(true) : undefined}
+                className={canPlayForSeat(seat) && !dummyExpanded ? 'cursor-pointer' : ''}
+              >
+                <DummyHandDisplay
+                  hand={getHand(seat)}
+                  rotation={dummyRotation}
+                  isTurn={isTurnNow}
+                  cardWidth={cardW}
+                  trumpStrain={contract?.strain}
+                />
+                {canPlayForSeat(seat) && !dummyExpanded && (
+                  <p className="text-[10px] text-amber-400/70 text-center mt-0.5 animate-pulse">Click to expand</p>
+                )}
+              </div>
             ) : (
               <HandDisplay
                 hand={getHand(seat)}
@@ -596,6 +612,30 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                 {phase === 'bidding' && lastBidPerSeat[mySeat] && (
                   <BidBadge bid={lastBidPerSeat[mySeat]!.bid} />
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Expanded dummy hand overlay */}
+          {dummyExpanded && isDeclarer && dummy && canPlayForSeat(dummy) && (
+            <div
+              className="absolute inset-0 z-30 bg-black/60 backdrop-blur-sm flex items-center justify-center"
+              onClick={() => setDummyExpanded(false)}
+            >
+              <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-2">
+                <p className="text-xs text-amber-400 font-medium">Dummy — select a card</p>
+                <DummyHandDisplay
+                  hand={getHand(dummy)}
+                  rotation="up"
+                  isTurn
+                  cardWidth={dummyOverlayCardW}
+                  trumpStrain={contract?.strain}
+                  onCardClick={(card: Card) => {
+                    setDummyExpanded(false);
+                    playCard(card);
+                  }}
+                  legalCards={getLegalCardsForDisplay(dummy)}
+                />
               </div>
             </div>
           )}
