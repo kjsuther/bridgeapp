@@ -70,9 +70,9 @@ function dummyHandFactors(hand: Card[]) {
 function computeDummyCardW(zoneW: number, zoneH: number, isRotated: boolean, hand: Card[], maxW = 110): number {
   const { widthFactor, heightFactor } = dummyHandFactors(hand);
   if (isRotated) {
-    return Math.max(28, Math.min(zoneW / heightFactor, zoneH / widthFactor, maxW));
+    return Math.max(22, Math.min(zoneW / heightFactor, zoneH / widthFactor, maxW));
   }
-  return Math.max(28, Math.min(zoneW / widthFactor, zoneH / heightFactor, maxW));
+  return Math.max(22, Math.min(zoneW / widthFactor, zoneH / heightFactor, maxW));
 }
 
 const TRICK_POSITION_CLASSES: Record<ViewSide, string> = {
@@ -276,42 +276,42 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   // --- Dynamic sizing based on measured container ---
   const w = availW || 800;
   const h = availH || 600;
-  const centerW = Math.max(240, w * 0.5);
-  const centerH = Math.max(240, h * 0.5);
-  const edgeH = Math.max(70, (h - centerH) / 2);
-  const edgeW = Math.max(90, (w - centerW) / 2);
+  const centerW = w * 0.5;
+  const centerH = h * 0.5;
+  const edgeH = (h - centerH) / 2;
+  const edgeW = (w - centerW) / 2;
 
-  const VIDEO_GAP = 10;
-  const ZONE_PAD = 12;
+  const VIDEO_GAP = 8;
+  const ZONE_PAD = 8;
 
   const myHandCards = getHand(mySeat);
-  const myCardW = Math.max(36, Math.min(
-    (w - 60) / handWidthFactor(myHandCards),
+  const myCardW = Math.max(28, Math.min(
+    (w - 40) / handWidthFactor(myHandCards),
     (edgeH - ZONE_PAD) / 1.4,
     130,
   ));
 
-  const sideVideoW = Math.min(150, edgeW * 0.6, centerH * 0.22);
+  const sideVideoW = Math.min(130, edgeW * 0.55, centerH * 0.2);
   const sideVideoH = sideVideoW * 0.75;
-  const tbVideoW = Math.min(180, w * 0.16, edgeH * 0.5);
+  const tbVideoW = Math.min(160, w * 0.14, edgeH * 0.45);
   const tbVideoH = tbVideoW * 0.75;
-  const myVideoW = Math.min(140, w * 0.12);
+  const myVideoW = Math.min(120, w * 0.1);
   const myVideoH = myVideoW * 0.75;
 
-  let dummyCardW = 50;
+  let dummyCardW = 40;
   if (dummy && isDummyRevealed && phase === 'playing') {
     const dummySide = viewSides[dummy];
     const dummyHandCards = getHand(dummy);
     if (dummySide === 'top' || dummySide === 'bottom') {
       const vH = tbVideoH;
-      const zoneW = w - 60;
+      const zoneW = w - 40;
       const zoneH = edgeH - vH - VIDEO_GAP - ZONE_PAD;
-      dummyCardW = computeDummyCardW(zoneW, zoneH, false, dummyHandCards);
+      dummyCardW = computeDummyCardW(zoneW, Math.max(30, zoneH), false, dummyHandCards);
     } else {
       const vH = sideVideoH;
       const zoneW = edgeW - ZONE_PAD;
       const zoneH = centerH - vH - VIDEO_GAP - ZONE_PAD;
-      dummyCardW = computeDummyCardW(zoneW, zoneH, true, dummyHandCards);
+      dummyCardW = computeDummyCardW(Math.max(30, zoneW), Math.max(30, zoneH), true, dummyHandCards);
     }
   }
 
@@ -319,9 +319,9 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     ? computeDummyCardW(w * 0.85, h * 0.75, false, getHand(dummy), 130)
     : 80;
 
-  const otherCardW = Math.max(30, Math.min(52, edgeW * 0.35, edgeH * 0.28));
-  const playedCardW = Math.max(44, Math.min(centerW * 0.22, centerH * 0.22, 88));
-  const trickAreaSize = Math.max(200, Math.min(centerW * 0.75, centerH * 0.75, 300));
+  const otherCardW = Math.max(24, Math.min(52, edgeW * 0.32, edgeH * 0.25));
+  const playedCardW = Math.max(36, Math.min(centerW * 0.2, centerH * 0.2, 88));
+  const trickAreaSize = Math.min(centerW * 0.8, centerH * 0.8, 300);
 
   const seatBySide: Record<ViewSide, Seat | null> = { top: null, bottom: null, left: null, right: null };
   for (const seat of SEATS) {
@@ -400,7 +400,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   };
 
   return (
-    <div className="h-dvh min-h-[36rem] overflow-hidden bg-gradient-to-br from-slate-900 via-emerald-950/80 to-slate-900 flex flex-col">
+    <div className="h-dvh min-h-[28rem] overflow-hidden bg-gradient-to-br from-slate-900 via-emerald-950/80 to-slate-900 flex flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur border-b border-slate-700/50">
         <button
@@ -494,8 +494,8 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           style={{
             display: 'grid',
             gridTemplateAreas: '"top top top" "left center right" "bottom bottom bottom"',
-            gridTemplateColumns: 'minmax(90px, 1fr) minmax(240px, 2fr) minmax(90px, 1fr)',
-            gridTemplateRows: 'minmax(70px, 1fr) minmax(240px, 2fr) minmax(70px, 1fr)',
+            gridTemplateColumns: 'minmax(60px, 1fr) minmax(0, 2fr) minmax(60px, 1fr)',
+            gridTemplateRows: 'minmax(50px, 1fr) minmax(0, 2fr) minmax(50px, 1fr)',
           }}
         >
           {/* Felt table background */}
@@ -516,18 +516,20 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           )}
 
           {/* Center: trick area / bidding area / scoring */}
-          <div style={{ gridArea: 'center' }} className="relative overflow-hidden flex items-center justify-center">
-            <div className="pointer-events-auto max-h-full overflow-y-auto flex items-center justify-center">
+          <div style={{ gridArea: 'center' }} className="relative overflow-hidden flex items-center justify-center p-2">
+            <div className="pointer-events-auto w-full h-full flex items-center justify-center overflow-hidden">
 
               {phase === 'bidding' && !passedOut && (
-                <div className="flex flex-col items-center gap-3 bg-slate-900/70 backdrop-blur-sm rounded-2xl p-4 border border-slate-700/40">
-                  <div className="text-center">
+                <div className="flex flex-col items-center gap-2 bg-slate-900/70 backdrop-blur-sm rounded-2xl p-3 border border-slate-700/40 max-h-full overflow-hidden">
+                  <div className="text-center shrink-0">
                     <p className="text-slate-300 text-sm font-medium">
                       {isMyTurn ? 'Your turn to bid' : `Waiting for ${currentSeat} to bid...`}
                     </p>
                   </div>
                   {isMyTurn && <BiddingPanel />}
-                  <AuctionHistory />
+                  <div className="min-h-0 overflow-y-auto max-h-full">
+                    <AuctionHistory />
+                  </div>
                 </div>
               )}
 
@@ -565,9 +567,9 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
               )}
 
               {(phase === 'scoring' || phase === 'finished') && !rubberState.rubberComplete && (
-                <div className="flex flex-col items-center gap-4">
+                <div className="flex flex-col items-center gap-2 max-h-full overflow-y-auto p-1">
                   {passedOut ? (
-                    <div className="bg-slate-800/80 rounded-xl p-6 text-center">
+                    <div className="bg-slate-800/80 rounded-xl p-4 text-center shrink-0">
                       <p className="text-slate-300">Hand passed out — no contract reached.</p>
                       <NextHandButton />
                     </div>
