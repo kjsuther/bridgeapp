@@ -226,59 +226,54 @@ export function HandDisplay({
 
   const suits = suitOrderFor(trumpStrain);
   const bySuit: Record<Suit, Card[]> = { S: [], H: [], D: [], C: [] };
-  for (const card of hand) {
-    bySuit[card.suit].push(card);
-  }
-
-  // Overlap factor: each card shows only its left edge
-  const cardW = cardWidth ?? CARD_WIDTH[size];
-  const overlap = cardW * 0.62;
-  const cardAdvance = cardW - overlap;
-  const suitGap = cardW * 0.25;
-
-  // Calculate total width needed
-  let totalCards = 0;
-  for (const s of suits) totalCards += Math.max(0, bySuit[s].length);
-  const totalWidth = totalCards > 0
-    ? cardW + (totalCards - 1) * cardAdvance + Math.max(0, suits.filter((s) => bySuit[s].length > 0).length - 1) * suitGap
-    : 0;
+  for (const card of hand) bySuit[card.suit].push(card);
+  const rankWidth = Math.max(14, Math.min(28, (cardWidth ?? CARD_WIDTH[size]) * 0.32));
+  const rankFontSize = Math.max(11, Math.min(15, rankWidth * 0.55));
 
   return (
-    <div className={`flex flex-col items-center gap-1 transition-all ${isTurn ? 'ring-2 ring-amber-400/50 rounded-lg p-1.5' : ''}`}>
+    <div className={`flex flex-col gap-1 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-2' : ''}`}>
       {label && (
-        <span className={`text-xs font-medium ${isDummy ? 'text-amber-400' : 'text-slate-300'}`}>
-          {label}{isDummy && ' (Dummy)'}
+        <span className={`text-xs font-semibold ${isDummy ? 'text-amber-400' : 'text-slate-200'}`}>
+          {label}{isDummy && ' · Dummy'}
         </span>
       )}
-      <div className="flex items-center justify-center" style={{ minWidth: totalWidth }}>
-        {suits.map((suit, suitIdx) => {
-          if (bySuit[suit].length === 0) return null;
-          return (
-            <div key={suit} className="flex items-center" style={suitIdx > 0 ? { marginLeft: suitGap } : undefined}>
-              {bySuit[suit].map((card, cardIdx) => {
+      <div className="rounded-md bg-slate-950/45 border border-slate-700/60 px-2 py-1.5">
+        {suits.map((suit) => (
+          <div key={suit} className="flex items-center min-h-6 leading-none">
+            <span className={`w-5 shrink-0 text-base font-bold ${isRedSuit(suit) ? 'text-red-400' : 'text-slate-200'}`}>
+              {SUIT_SYMBOLS[suit]}
+            </span>
+            <div className="flex items-center gap-0.5">
+              {bySuit[suit].map((card) => {
                 const cardKey = `${card.rank}${card.suit}`;
                 const isLegal = legalCards?.has(cardKey) ?? false;
-                const canClick = onCardClick && (legalCards ? isLegal : true);
+                const canClick = !!onCardClick && (legalCards ? isLegal : true);
+                const cardColor = isRedSuit(suit) ? 'text-red-300' : 'text-slate-100';
                 return (
-                  <div
+                  <button
                     key={cardKey}
-                    className="relative"
-                    style={{ zIndex: cardIdx, ...(cardIdx > 0 ? { marginLeft: -overlap } : {}) }}
+                    type="button"
+                    onClick={canClick ? () => onCardClick(card) : undefined}
+                    disabled={!canClick}
+                    aria-label={`${RANK_DISPLAY[card.rank]} of ${suit}`}
+                    style={{ width: rankWidth, fontSize: rankFontSize }}
+                    className={`rounded px-0.5 py-1 font-semibold transition-colors ${cardColor} ${
+                      canClick
+                        ? isLegal
+                          ? 'bg-amber-400 text-slate-950 shadow-sm'
+                          : 'hover:bg-slate-700'
+                        : onCardClick
+                          ? 'opacity-35'
+                          : ''
+                    }`}
                   >
-                    <CardDisplay
-                      card={card}
-                      size={size}
-                      cardWidth={cardWidth}
-                      onClick={canClick ? () => onCardClick!(card) : undefined}
-                      disabled={!canClick}
-                      highlight={isLegal && !!onCardClick}
-                    />
-                  </div>
+                    {RANK_DISPLAY[card.rank]}
+                  </button>
                 );
               })}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -361,106 +356,58 @@ export function DummyHandDisplay({
   hand,
   onCardClick,
   legalCards,
-  rotation = 'up',
   isTurn,
   size = 'xs',
   cardWidth,
   trumpStrain,
 }: DummyHandDisplayProps) {
-  // For 180° rotation, reverse suit and card order so they appear correct
-  // after the CSS transform flips everything.
-  const baseSuits = suitOrderFor(trumpStrain);
-  const suits = rotation === 'down' ? [...baseSuits].reverse() : baseSuits;
+  const suits = suitOrderFor(trumpStrain);
   const bySuit: Record<Suit, Card[]> = { S: [], H: [], D: [], C: [] };
-  for (const card of hand) {
-    bySuit[card.suit].push(card);
-  }
-  // Reverse cards within each suit for 180° so highest appears on top after rotation
-  if (rotation === 'down') {
-    for (const s of baseSuits) bySuit[s].reverse();
-  }
-
-  const cardW = cardWidth ?? CARD_WIDTH[size];
-  const cardH = cardW * 1.4;
-  const vOverlap = cardH * 0.62;
-  const cardAdvance = cardH - vOverlap;
-  const colGap = cardW * 0.3;
-
-  const rotationDeg: Record<string, number> = {
-    up: 0,
-    left: 90,
-    down: 180,
-    right: -90,
-  };
-  const deg = rotationDeg[rotation] ?? 0;
-
-  const nonEmptySuits = suits.filter((s) => bySuit[s].length > 0);
-  const numCols = nonEmptySuits.length;
-  const layoutWidth = numCols > 0 ? numCols * cardW + (numCols - 1) * colGap : cardW;
-  const maxColHeight = Math.max(1, ...nonEmptySuits.map((s) => bySuit[s].length));
-  const layoutHeight = cardH + (maxColHeight - 1) * cardAdvance;
+  for (const card of hand) bySuit[card.suit].push(card);
+  const rankWidth = Math.max(14, Math.min(28, (cardWidth ?? CARD_WIDTH[size]) * 0.32));
+  const rankFontSize = Math.max(11, Math.min(15, rankWidth * 0.55));
 
   return (
-    <div
-      className={`flex flex-col items-center gap-1 transition-all ${isTurn ? 'ring-2 ring-amber-400/50 rounded-lg p-1.5' : ''}`}
-    >
-      <span className="text-xs font-medium text-amber-400">Dummy</span>
-      <div
-        style={{
-          width: deg === 0 || deg === 180 ? layoutWidth : layoutHeight,
-          height: deg === 0 || deg === 180 ? layoutHeight : layoutWidth,
-          position: 'relative',
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: `translate(-50%, -50%) rotate(${deg}deg)`,
-            transformOrigin: 'center center',
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'flex-start',
-            gap: `${colGap}px`,
-          }}
-        >
-          {suits.map((suit) => {
-            if (bySuit[suit].length === 0) return null;
-            return (
-              <div
-                key={suit}
-                className="flex flex-col items-center"
-                style={{ width: cardW }}
-              >
-                {bySuit[suit].map((card, cardIdx) => {
-                  const cardKey = `${card.rank}${card.suit}`;
-                  const isLegal = legalCards?.has(cardKey) ?? false;
-                  const canClick = onCardClick && (legalCards ? isLegal : true);
-                  return (
-                    <div
-                      key={cardKey}
-                      className="relative"
-                      style={{
-                        zIndex: rotation === 'down' ? bySuit[suit].length - cardIdx : cardIdx,
-                        ...(cardIdx > 0 ? { marginTop: -vOverlap } : {}),
-                      }}
-                    >
-                      <CardDisplay
-                        card={card}
-                        size={size}
-                        cardWidth={cardW}
-                        onClick={canClick ? () => onCardClick!(card) : undefined}
-                        disabled={!canClick}
-                        highlight={isLegal && !!onCardClick}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
+    <div className={`flex flex-col gap-1 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-2' : ''}`}>
+      <span className="text-xs font-semibold text-amber-400">Dummy</span>
+      <div className="rounded-md bg-slate-950/45 border border-amber-500/30 px-2 py-1.5">
+        {suits.map((suit) => (
+          <div key={suit} className="flex items-center min-h-6 leading-none">
+            <span className={`w-5 shrink-0 text-base font-bold ${isRedSuit(suit) ? 'text-red-400' : 'text-slate-200'}`}>
+              {SUIT_SYMBOLS[suit]}
+            </span>
+            <div className="flex items-center gap-0.5">
+              {bySuit[suit].map((card) => {
+                const cardKey = `${card.rank}${card.suit}`;
+                const isLegal = legalCards?.has(cardKey) ?? false;
+                const canClick = !!onCardClick && (legalCards ? isLegal : true);
+                return (
+                  <button
+                    key={cardKey}
+                    type="button"
+                    onClick={canClick ? () => onCardClick(card) : undefined}
+                    disabled={!canClick}
+                    aria-label={`${RANK_DISPLAY[card.rank]} of ${suit}`}
+                    style={{ width: rankWidth, fontSize: rankFontSize }}
+                    className={`rounded px-0.5 py-1 font-semibold transition-colors ${
+                      isRedSuit(suit) ? 'text-red-300' : 'text-slate-100'
+                    } ${
+                      canClick
+                        ? isLegal
+                          ? 'bg-amber-400 text-slate-950 shadow-sm'
+                          : 'hover:bg-slate-700'
+                        : onCardClick
+                          ? 'opacity-35'
+                          : ''
+                    }`}
+                  >
+                    {RANK_DISPLAY[card.rank]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

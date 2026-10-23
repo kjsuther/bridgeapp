@@ -495,26 +495,21 @@ function CompactHand({
 
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <div className="flex items-center gap-1">
-        <span className="text-xs font-bold text-slate-300">{label}</span>
-        {vulnerable && <span className="text-[8px] text-red-400">V</span>}
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs font-bold text-slate-200">{label}</span>
+        {vulnerable && <span className="text-[9px] font-semibold text-red-400">V</span>}
       </div>
-      <div className="flex flex-col gap-0.5">
-        {suits.map(s => {
-          if (bySuit[s].length === 0) return (
-            <div key={s} className="text-[9px] text-slate-700 leading-tight min-h-[12px]">
+      <div className="rounded-md bg-slate-950/45 border border-slate-700/50 px-2 py-1.5">
+        {suits.map(s => (
+          <div key={s} className="flex items-center min-h-5 text-xs leading-none">
+            <span className={`w-5 font-bold ${s === 'H' || s === 'D' ? 'text-red-400' : 'text-slate-200'}`}>
               {SUIT_SYMBOLS[s]}
-            </div>
-          );
-          return (
-            <div key={s} className="text-[9px] leading-tight min-h-[12px] flex items-center gap-0.5">
-              <span className={s === 'H' || s === 'D' ? 'text-red-500' : 'text-slate-400'}>{SUIT_SYMBOLS[s]}</span>
-              <span className="text-slate-300">
-                {bySuit[s].map(c => RANK_DISPLAY[c.rank]).join(' ')}
-              </span>
-            </div>
-          );
-        })}
+            </span>
+            <span className="font-semibold tracking-wide text-slate-200">
+              {bySuit[s].map(c => RANK_DISPLAY[c.rank]).join(' ')}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
