@@ -364,8 +364,8 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           {showHand ? (
             dummy === seat && isDummyRevealed && phase === 'playing' ? (
               <div
-                onClick={canPlayForSeat(seat) && !dummyExpanded ? () => setDummyExpanded(true) : undefined}
-                className={canPlayForSeat(seat) && !dummyExpanded ? 'cursor-pointer' : ''}
+                onClick={!dummyExpanded ? () => setDummyExpanded(true) : undefined}
+                className={!dummyExpanded ? 'cursor-pointer' : ''}
               >
                 <DummyHandDisplay
                   hand={getHand(seat)}
@@ -374,7 +374,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                   cardWidth={cardW}
                   trumpStrain={contract?.strain}
                 />
-                {canPlayForSeat(seat) && !dummyExpanded && (
+                {!dummyExpanded && (
                   <p className="text-[10px] text-amber-400/70 text-center mt-0.5 animate-pulse">Click to expand</p>
                 )}
               </div>
@@ -617,25 +617,30 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           )}
 
           {/* Expanded dummy hand overlay */}
-          {dummyExpanded && isDeclarer && dummy && canPlayForSeat(dummy) && (
+          {dummyExpanded && dummy && isDummyRevealed && phase === 'playing' && (
             <div
               className="absolute inset-0 z-30 bg-black/60 backdrop-blur-sm flex items-center justify-center"
               onClick={() => setDummyExpanded(false)}
             >
               <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-2">
-                <p className="text-xs text-amber-400 font-medium">Dummy — select a card</p>
+                <p className="text-xs text-amber-400 font-medium">
+                  {isDeclarer && canPlayForSeat(dummy) ? 'Dummy — select a card' : 'Dummy hand'}
+                </p>
                 <DummyHandDisplay
                   hand={getHand(dummy)}
                   rotation="up"
                   isTurn
                   cardWidth={dummyOverlayCardW}
                   trumpStrain={contract?.strain}
-                  onCardClick={(card: Card) => {
+                  onCardClick={isDeclarer && canPlayForSeat(dummy) ? (card: Card) => {
                     setDummyExpanded(false);
                     playCard(card);
-                  }}
-                  legalCards={getLegalCardsForDisplay(dummy)}
+                  } : undefined}
+                  legalCards={isDeclarer && canPlayForSeat(dummy) ? getLegalCardsForDisplay(dummy) : undefined}
                 />
+                {!(isDeclarer && canPlayForSeat(dummy)) && (
+                  <p className="text-xs text-slate-400">Click outside to close</p>
+                )}
               </div>
             </div>
           )}

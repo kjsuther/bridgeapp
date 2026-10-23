@@ -101,6 +101,9 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const [newHandsBeforeReplay, setNewHandsBeforeReplay] = useState(10);
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reloadInProgressRef = useRef(false);
+  const reloadPendingRef = useRef(false);
 
   const updateHand = useCallback(async (
     handId: string,
@@ -163,23 +166,34 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
   // Load game state
   const loadGameState = useCallback(async () => {
-    const { data: game } = await supabase
-      .from('games')
-      .select('*')
-      .eq('id', gameId)
-      .maybeSingle();
+    // Fetch game, table, and latest hand in parallel
+    const [gameResult, tableResult, handsResult] = await Promise.all([
+      supabase
+        .from('games')
+        .select('*')
+        .eq('id', gameId)
+        .maybeSingle(),
+      supabase
+        .from('tables')
+        .select('overall_ns_total, overall_ew_total, rubber_number, match_imps_a, match_imps_b, match_board_number, new_hands_before_replay')
+        .eq('id', tableId)
+        .maybeSingle(),
+      supabase
+        .from('hands')
+        .select('*')
+        .eq('game_id', gameId)
+        .order('hand_number', { ascending: false })
+        .limit(1),
+    ]);
+
+    const game = gameResult.data;
+    const tableData = tableResult.data;
+    const hands = handsResult.data;
 
     if (!game) {
       setLoading(false);
       return;
     }
-
-    // Load overall scores and match IMPs from the table
-    const { data: tableData } = await supabase
-      .from('tables')
-      .select('overall_ns_total, overall_ew_total, rubber_number, match_imps_a, match_imps_b, match_board_number, new_hands_before_replay')
-      .eq('id', tableId)
-      .maybeSingle();
 
     setMatchState({
       totalImpsA: tableData?.match_imps_a ?? 0,
@@ -207,14 +221,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     };
     setRubberState(rs);
     setHandNumber(game.hand_number);
-
-    // Load the latest hand
-    const { data: hands } = await supabase
-      .from('hands')
-      .select('*')
-      .eq('game_id', gameId)
-      .order('hand_number', { ascending: false })
-      .limit(1);
 
     if (hands && hands.length > 0) {
       const hand = hands[0];
@@ -272,30 +278,48 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   useEffect(() => {
     if (!gameId) return;
 
+    const debouncedReload = () => {
+      if (reloadInProgressRef.current) {
+        reloadPendingRef.current = true;
+        return;
+      }
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = setTimeout(async () => {
+        reloadTimerRef.current = null;
+        reloadInProgressRef.current = true;
+        await loadGameState();
+        reloadInProgressRef.current = false;
+        if (reloadPendingRef.current) {
+          reloadPendingRef.current = false;
+          debouncedReload();
+        }
+      }, 150);
+    };
+
     const channel = supabase.channel(`game-${gameId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'hands',
         filter: `game_id=eq.${gameId}`,
-      }, () => loadGameState())
+      }, debouncedReload)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'hand_cards',
-      }, () => loadGameState())
+      }, debouncedReload)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'games',
         filter: `id=eq.${gameId}`,
-      }, () => loadGameState())
+      }, debouncedReload)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'tables',
         filter: `id=eq.${tableId}`,
-      }, () => loadGameState())
+      }, debouncedReload)
       .subscribe();
 
     channelRef.current = channel;
@@ -303,6 +327,10 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     return () => {
       supabase.removeChannel(channel);
       channelRef.current = null;
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
     };
   }, [gameId, loadGameState, tableId]);
 
@@ -686,15 +714,17 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       }
     }
 
-    const handSaved = await updateHand(currentHandId, updateData);
-    if (!handSaved) return;
-
-    await supabase.rpc('record_bridge_play', {
+    const playRecordPromise = supabase.rpc('record_bridge_play', {
       p_hand_id: currentHandId,
       p_trick_number: playState.trickNumber,
       p_seat: playingSeat,
       p_card: `${card.rank}${card.suit}`,
     });
+
+    const handSaved = await updateHand(currentHandId, updateData);
+    if (!handSaved) return;
+
+    await playRecordPromise;
 
     setPlayState(updatedPlayState);
     setPhase(newPhase);
@@ -1001,15 +1031,16 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const dummySeatVal = contract ? dummySeat(contract.declarer) : null;
 
   const isMyTurn = currentSeat === mySeat || (isDeclarerSeat && currentSeat === dummySeatVal);
+  const isMyOwnTurn = currentSeat === mySeat;
 
-  // Play a notification sound when it becomes my turn
-  const prevIsMyTurnRef = useRef(false);
+  // Play a notification sound when it becomes my turn (not when it's dummy's turn)
+  const prevIsMyOwnTurnRef = useRef(false);
   useEffect(() => {
-    if (isMyTurn && !prevIsMyTurnRef.current) {
+    if (isMyOwnTurn && !prevIsMyOwnTurnRef.current) {
       playTurnNotification();
     }
-    prevIsMyTurnRef.current = isMyTurn;
-  }, [isMyTurn]);
+    prevIsMyOwnTurnRef.current = isMyOwnTurn;
+  }, [isMyOwnTurn]);
 
   // Compute remaining cards per seat by removing played cards
   const remainingCards: Record<Seat, Card[]> = (() => {
