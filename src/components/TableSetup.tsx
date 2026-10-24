@@ -362,27 +362,28 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
               <label htmlFor="newHandsInput" className="text-sm text-slate-300 whitespace-nowrap">
                 New hands before replays:
               </label>
-              <input
+              <select
                 id="newHandsInput"
-                type="number"
-                min={1}
-                max={99}
                 value={newHandsBeforeReplay}
                 onChange={(e) => {
                   const v = parseInt(e.target.value, 10);
-                  if (!isNaN(v) && v >= 1) setNewHandsBeforeReplay(v);
+                  if (!isNaN(v)) {
+                    setNewHandsBeforeReplay(v);
+                    supabase
+                      .from('tables')
+                      .update({ new_hands_before_replay: v })
+                      .eq('id', tableId)
+                      .then(() => loadState());
+                  }
                 }}
-                onBlur={() => {
-                  supabase
-                    .from('tables')
-                    .update({ new_hands_before_replay: newHandsBeforeReplay })
-                    .eq('id', tableId)
-                    .then(() => loadState());
-                }}
-                className="w-20 px-3 py-1.5 bg-slate-900/70 border border-slate-700 rounded-lg text-white text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-              />
+                className="w-24 px-3 py-1.5 bg-slate-900/70 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              >
+                {[4, 8, 12, 16, 20, 24, 28, 32].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
               <span className="text-xs text-slate-500">
-                After this many new hands, the match alternates between replaying old deals (with seats swapped) and new ones.
+                Must be a multiple of 4 so dealer and vulnerability cycle in sync with replays. After this many new hands, the match alternates between replaying old deals (with seats swapped) and new ones.
               </span>
             </div>
           )}

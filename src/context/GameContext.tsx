@@ -327,12 +327,14 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const getHandSchedule = useCallback(async (hNum: number): Promise<{
     role: HandRole;
     originalHandId: string | null;
+    originalDealer: Seat | null;
+    originalVulnerability: Vulnerability | null;
   }> => {
     // Fetch all original hands that have been played (phase = scoring/finished)
     // and don't have a replay yet
     const { data: allHands } = await supabase
       .from('hands')
-      .select('id, hand_number, hand_role, phase, original_hand_id')
+      .select('id, hand_number, hand_role, phase, original_hand_id, dealer, vulnerability')
       .eq('game_id', gameId)
       .order('hand_number', { ascending: true });
 
@@ -355,16 +357,22 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     const replayable = completedOriginals.filter(n => !replayedOriginals.has(n));
     const sched = scheduleHand(hNum, newHandsBeforeReplay, replayable);
 
-    // If it's a replay, find the hand_id of the original
+    // If it's a replay, find the hand_id of the original (and its dealer/vulnerability)
     let originalHandId: string | null = null;
+    let originalDealer: Seat | null = null;
+    let originalVulnerability: Vulnerability | null = null;
     if (sched.role === 'replay' && sched.originalHandNumber !== null) {
       const orig = (allHands ?? []).find(
         h => h.hand_number === sched.originalHandNumber && h.hand_role === 'original'
       );
       originalHandId = orig?.id ?? null;
+      if (orig) {
+        originalDealer = orig.dealer as Seat;
+        originalVulnerability = orig.vulnerability as Vulnerability;
+      }
     }
 
-    return { role: sched.role, originalHandId };
+    return { role: sched.role, originalHandId, originalDealer, originalVulnerability };
   }, [gameId, newHandsBeforeReplay]);
 
   // Create a new hand
@@ -372,11 +380,13 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     if (creatingHandRef.current) return null;
     creatingHandRef.current = true;
 
-    const firstDealer: Seat = 'N';
-    const newDealer = dealerForHand(hNum, firstDealer);
-    const vul: Vulnerability = vulnerabilityForHand(hNum);
+    const { role, originalHandId, originalDealer, originalVulnerability } = await getHandSchedule(hNum);
 
-    const { role, originalHandId } = await getHandSchedule(hNum);
+    // Replay hands reuse the original board's dealer and vulnerability so the
+    // auction starts from the same position. Original hands use the standard cycle.
+    const firstDealer: Seat = 'N';
+    const newDealer = originalDealer ?? dealerForHand(hNum, firstDealer);
+    const vul: Vulnerability = originalVulnerability ?? vulnerabilityForHand(hNum);
 
     const rpcParams: Record<string, unknown> = {
       p_game_id: gameId,

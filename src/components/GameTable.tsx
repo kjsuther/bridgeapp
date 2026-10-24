@@ -476,28 +476,27 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                   <div className="mt-3 border-t border-slate-700/50 pt-3">
                     <label className="flex items-center justify-between text-xs text-slate-300 py-1.5">
                       <span className="whitespace-nowrap">New hands before replay</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={99}
+                      <select
                         value={replaySetting}
                         disabled={replaysStarted}
                         onChange={(e) => {
-                          const v = parseInt(e.target.value, 10);
-                          if (!isNaN(v) && v >= 1) setReplaySetting(v);
-                        }}
-                        onBlur={() => {
                           if (replaysStarted) return;
-                          const v = Math.max(1, Math.min(99, replaySetting));
-                          setReplaySetting(v);
-                          supabase
-                            .from('tables')
-                            .update({ new_hands_before_replay: v })
-                            .eq('id', tableId)
-                            .then();
+                          const v = parseInt(e.target.value, 10);
+                          if (!isNaN(v)) {
+                            setReplaySetting(v);
+                            supabase
+                              .from('tables')
+                              .update({ new_hands_before_replay: v })
+                              .eq('id', tableId)
+                              .then();
+                          }
                         }}
-                        className="w-14 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-white text-xs text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
-                      />
+                        className="w-16 px-1.5 py-1 bg-slate-800 border border-slate-600 rounded text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {[4, 8, 12, 16, 20, 24, 28, 32].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
                     </label>
                     {replaysStarted && (
                       <p className="text-[10px] text-slate-500 mt-1">Locked — replays have already started.</p>
