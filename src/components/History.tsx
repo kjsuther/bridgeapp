@@ -23,6 +23,7 @@ interface CompletedBoard {
   imps: number;
   netPoints: number;
   tableName: string;
+  tableId: string;
   createdAt: string;
 }
 
@@ -36,6 +37,8 @@ interface HandDetail {
   vulnerability: Vulnerability;
   dealer: Seat;
 }
+
+type SeatNames = Record<Seat, string>;
 
 export function History({ onBack }: HistoryProps) {
   const { profile } = useAuth();
@@ -129,6 +132,7 @@ export function History({ onBack }: HistoryProps) {
           imps: impResult?.imps ?? 0,
           netPoints: impResult?.netPoints ?? 0,
           tableName: gameInfo.tableName,
+          tableId: gameInfo.tableId,
           createdAt: gameInfo.createdAt,
         });
       }
@@ -240,31 +244,55 @@ export function History({ onBack }: HistoryProps) {
   );
 }
 
+/** Flatten completed tricks into a single ordered list of cards as they were played. */
+function flattenPlayedCards(tricks: TrickCard[][]): TrickCard[] {
+  const all: TrickCard[] = [];
+  for (const trick of tricks) {
+    for (const tc of trick) {
+      all.push(tc);
+    }
+  }
+  return all;
+}
+
 function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () => void }) {
   const [original, setOriginal] = useState<HandDetail | null>(null);
   const [replay, setReplay] = useState<HandDetail | null>(null);
-  const [trickIndex, setTrickIndex] = useState(0);
+  const [seatNames, setSeatNames] = useState<SeatNames>({ N: 'N', E: 'E', S: 'S', W: 'W' });
+  const [cardIndex, setCardIndex] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const [origData, replayData] = await Promise.all([
+      const [origData, replayData, namesData] = await Promise.all([
         loadHandDetail(board.originalHandId),
         loadHandDetail(board.replayHandId),
+        loadSeatNames(board.tableId),
       ]);
       setOriginal(origData);
       setReplay(replayData);
+      setSeatNames(namesData);
       setLoading(false);
     })();
-  }, [board.originalHandId, board.replayHandId]);
+  }, [board.originalHandId, board.replayHandId, board.tableId]);
 
-  const maxTricks = useMemo(() => {
+  const maxCards = useMemo(() => {
     const o = original?.playState.completedTricks.length ?? 0;
     const r = replay?.playState.completedTricks.length ?? 0;
-    return Math.max(o, r);
+    return Math.max(o, r) * 4;
   }, [original, replay]);
 
-  const currentTrickIndex = Math.min(trickIndex, Math.max(0, maxTricks - 1));
+  const currentCardIndex = Math.min(cardIndex, Math.max(0, maxCards - 1));
+  const currentTrickNumber = Math.floor(currentCardIndex / 4);
+  const cardInTrick = currentCardIndex % 4;
+
+  const stepBack = useCallback(() => {
+    setCardIndex(i => Math.max(0, i - 1));
+  }, []);
+
+  const stepForward = useCallback(() => {
+    setCardIndex(i => Math.min(maxCards - 1, i + 1));
+  }, [maxCards]);
 
   if (loading) {
     return (
@@ -303,26 +331,26 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
           </div>
         </div>
 
-        {/* Trick navigation */}
+        {/* Card-by-card navigation */}
         <div className="flex items-center justify-center gap-4 mb-4 bg-slate-800/60 rounded-xl border border-slate-700/50 p-3">
           <button
-            onClick={() => setTrickIndex(i => Math.max(0, i - 1))}
-            disabled={currentTrickIndex === 0}
+            onClick={stepBack}
+            disabled={currentCardIndex === 0}
             className="p-2 rounded-lg bg-slate-700 text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-600 transition-colors"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <div className="text-center min-w-[140px]">
+          <div className="text-center min-w-[160px]">
             <div className="text-sm text-white font-medium">
-              {currentTrickIndex < maxTricks ? `Trick ${currentTrickIndex + 1}` : 'All Tricks'}
+              Trick {currentTrickNumber + 1} · Card {cardInTrick + 1}
             </div>
             <div className="text-xs text-slate-500">
-              {currentTrickIndex + 1} / {maxTricks}
+              Card {currentCardIndex + 1} / {maxCards}
             </div>
           </div>
           <button
-            onClick={() => setTrickIndex(i => Math.min(maxTricks - 1, i + 1))}
-            disabled={currentTrickIndex >= maxTricks - 1}
+            onClick={stepForward}
+            disabled={currentCardIndex >= maxCards - 1}
             className="p-2 rounded-lg bg-slate-700 text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-600 transition-colors"
           >
             <ChevronRight className="w-5 h-5" />
@@ -335,15 +363,17 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
             title="Original"
             subtitle="N+S vs E+W (normal seats)"
             detail={original}
-            trickIndex={currentTrickIndex}
+            cardIndex={currentCardIndex}
             accent="emerald"
+            seatNames={seatNames}
           />
           <HandPanel
             title="Replay (Swapped)"
             subtitle="N+S swapped with E+W"
             detail={replay}
-            trickIndex={currentTrickIndex}
+            cardIndex={currentCardIndex}
             accent="blue"
+            seatNames={seatNames}
           />
         </div>
       </div>
@@ -352,29 +382,43 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
 }
 
 function HandPanel({
-  title, subtitle, detail, trickIndex, accent,
+  title, subtitle, detail, cardIndex, accent, seatNames,
 }: {
   title: string;
   subtitle: string;
   detail: HandDetail;
-  trickIndex: number;
+  cardIndex: number;
   accent: 'emerald' | 'blue';
+  seatNames: SeatNames;
 }) {
   const accentText = accent === 'emerald' ? 'text-emerald-400' : 'text-blue-400';
   const accentBorder = accent === 'emerald' ? 'border-emerald-700/40' : 'border-blue-700/40';
   const accentBg = accent === 'emerald' ? 'bg-emerald-950/30' : 'bg-blue-950/30';
 
   const tricks = detail.playState.completedTricks;
-  const currentTrick = trickIndex < tricks.length ? tricks[trickIndex] : [];
+  const allCards = useMemo(() => flattenPlayedCards(tricks), [tricks]);
+
+  // The cards that have been played up to and including the current card index
   const playedUpTo = useMemo(() => {
     const played: Record<Seat, Card[]> = { N: [], E: [], S: [], W: [] };
-    for (let i = 0; i <= trickIndex && i < tricks.length; i++) {
-      for (const tc of tricks[i]) {
-        played[tc.seat].push(tc.card);
-      }
+    for (let i = 0; i <= cardIndex && i < allCards.length; i++) {
+      const tc = allCards[i];
+      played[tc.seat].push(tc.card);
     }
     return played;
-  }, [tricks, trickIndex]);
+  }, [allCards, cardIndex]);
+
+  // Which trick are we currently in, and how many cards of it have been played?
+  const currentTrickNumber = Math.floor(cardIndex / 4);
+  const cardInTrick = cardIndex % 4;
+
+  // Build the current trick display: show cards played so far in the current trick
+  const currentTrickCards = useMemo(() => {
+    if (currentTrickNumber >= tricks.length) return [];
+    const fullTrick = tricks[currentTrickNumber];
+    // Show only up to cardInTrick + 1 cards of this trick
+    return fullTrick.slice(0, cardInTrick + 1);
+  }, [tricks, currentTrickNumber, cardInTrick]);
 
   const getRemainingHand = (seat: Seat): Card[] => {
     const full = sortHand(detail.deal[seat], detail.contract.strain);
@@ -383,6 +427,11 @@ function HandPanel({
   };
 
   const trumpStrain = detail.contract.strain;
+
+  const seatLabel = (seat: Seat): string => {
+    const name = seatNames[seat] ?? seat;
+    return `${seat} · ${name}`;
+  };
 
   return (
     <div className={`rounded-xl border ${accentBorder} ${accentBg} backdrop-blur overflow-hidden`}>
@@ -404,25 +453,25 @@ function HandPanel({
         <div className="grid grid-areas-4h grid-cols-1 gap-2">
           {/* North */}
           <div className="flex justify-center">
-            <HandDisplay hand={getRemainingHand('N')} seat="N" label="N" cardWidth={36} trumpStrain={trumpStrain} />
+            <HandDisplay hand={getRemainingHand('N')} seat="N" label={seatLabel('N')} cardWidth={36} trumpStrain={trumpStrain} />
           </div>
           {/* West + trick + East */}
           <div className="flex items-center justify-between gap-2">
-            <HandDisplay hand={getRemainingHand('W')} seat="W" label="W" cardWidth={36} trumpStrain={trumpStrain} />
+            <HandDisplay hand={getRemainingHand('W')} seat="W" label={seatLabel('W')} cardWidth={36} trumpStrain={trumpStrain} />
             <div className="flex-shrink-0">
-              {currentTrick.length > 0 ? (
-                <TrickDisplay trick={currentTrick} />
+              {currentTrickCards.length > 0 ? (
+                <TrickDisplay trick={currentTrickCards} seatNames={seatNames} />
               ) : (
                 <div className="w-24 h-24 flex items-center justify-center text-xs text-slate-600">
-                  {trickIndex >= tricks.length ? 'Complete' : '—'}
+                  {currentTrickNumber >= tricks.length ? 'Complete' : '—'}
                 </div>
               )}
             </div>
-            <HandDisplay hand={getRemainingHand('E')} seat="E" label="E" cardWidth={36} trumpStrain={trumpStrain} />
+            <HandDisplay hand={getRemainingHand('E')} seat="E" label={seatLabel('E')} cardWidth={36} trumpStrain={trumpStrain} />
           </div>
           {/* South */}
           <div className="flex justify-center">
-            <HandDisplay hand={getRemainingHand('S')} seat="S" label="S" cardWidth={36} trumpStrain={trumpStrain} />
+            <HandDisplay hand={getRemainingHand('S')} seat="S" label={seatLabel('S')} cardWidth={36} trumpStrain={trumpStrain} />
           </div>
         </div>
 
@@ -432,7 +481,7 @@ function HandPanel({
           <div className="flex flex-wrap gap-1">
             {detail.auction.map((entry, i) => (
               <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/60 text-slate-300">
-                {entry.seat}: {bidText(entry.bid)}
+                {seatNames[entry.seat] ?? entry.seat}: {bidText(entry.bid)}
               </span>
             ))}
           </div>
@@ -442,27 +491,20 @@ function HandPanel({
   );
 }
 
-function TrickDisplay({ trick }: { trick: TrickCard[] }) {
-  const positionClasses: Record<Seat, string> = {
-    N: 'self-center',
-    S: 'self-center',
-    E: 'self-center',
-    W: 'self-center',
-  };
-
+function TrickDisplay({ trick, seatNames }: { trick: TrickCard[]; seatNames: SeatNames }) {
   return (
-    <div className="grid grid-cols-3 grid-rows-3 gap-0.5 w-24 h-24">
+    <div className="grid grid-cols-3 grid-rows-3 gap-0.5 w-28 h-28">
       {SEATS.map((seat) => {
         const tc = trick.find(c => c.seat === seat);
         return (
           <div
             key={seat}
-            className={`flex items-center justify-center ${seatPosClass(seat)}`}
+            className={`flex flex-col items-center justify-center ${seatPosClass(seat)}`}
           >
             {tc && (
-              <CardDisplay card={tc.card} cardWidth={44} />
+              <CardDisplay card={tc.card} cardWidth={40} />
             )}
-            {!tc && <span className="text-[9px] text-slate-700">{seat}</span>}
+            {!tc && <span className="text-[9px] text-slate-700">{seatNames[seat] ?? seat}</span>}
           </div>
         );
       })}
@@ -477,6 +519,33 @@ function seatPosClass(seat: Seat): string {
     case 'S': return 'col-start-2 row-start-3';
     case 'W': return 'col-start-1 row-start-2';
   }
+}
+
+async function loadSeatNames(tableId: string): Promise<SeatNames> {
+  const { data: players } = await supabase
+    .from('table_players')
+    .select('seat, user_id')
+    .eq('table_id', tableId);
+
+  if (!players || players.length === 0) {
+    return { N: 'N', E: 'E', S: 'S', W: 'W' };
+  }
+
+  const userIds = players.map((p) => p.user_id);
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, display_name')
+    .in('id', userIds);
+
+  const nameMap: Record<string, string> = {};
+  (profiles || []).forEach((p) => { nameMap[p.id] = p.display_name; });
+
+  const result: SeatNames = { N: 'N', E: 'E', S: 'S', W: 'W' };
+  for (const p of players) {
+    const seat = p.seat as Seat;
+    result[seat] = nameMap[p.user_id] ?? seat;
+  }
+  return result;
 }
 
 async function loadHandDetail(handId: string): Promise<HandDetail | null> {
