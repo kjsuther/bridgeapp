@@ -17,7 +17,8 @@ interface AuthContextValue {
   loading: boolean;
   signInWithOtp: (email: string) => Promise<{ error: string | null }>;
   verifyOtp: (email: string, token: string) => Promise<{ error: string | null }>;
-  updateProfile: (displayName: string, avatarStyle: string) => Promise<{ error: string | null }>;
+  updateProfile: (displayName: string, avatarStyle: string, avatarUrl?: string | null) => Promise<{ error: string | null }>;
+  uploadAvatar: (file: File) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -117,10 +118,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null };
   };
 
-  const updateProfile = async (displayName: string, avatarStyle: string) => {
+  const updateProfile = async (displayName: string, avatarStyle: string, avatarUrl?: string | null) => {
     const { data, error } = await supabase
       .from('profiles')
-      .update({ display_name: displayName, avatar_style: avatarStyle })
+      .update({
+        display_name: displayName,
+        avatar_style: avatarStyle,
+        ...(avatarUrl !== undefined ? { avatar_url: avatarUrl } : {}),
+      })
       .eq('id', user?.id ?? '')
       .select('id, display_name, email, avatar_url, avatar_style')
       .maybeSingle();
@@ -133,12 +138,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null };
   };
 
+  const uploadAvatar = async (file: File) => {
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+      return { error: 'Please choose a JPG, PNG, WEBP, or GIF image.' };
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      return { error: 'Please choose an image smaller than 2 MB.' };
+    }
+    if (!user) return { error: 'You must be signed in to upload an avatar.' };
+
+    const objectPath = `${user.id}/avatar`;
+    const { error: uploadError } = await supabase.storage
+      .from('profile-avatars')
+      .upload(objectPath, file, { upsert: true, contentType: file.type, cacheControl: '3600' });
+
+    if (uploadError) {
+      return { error: 'Your avatar could not be uploaded.' };
+    }
+
+    const result = await updateProfile(profile?.display_name ?? 'Player', profile?.avatar_style ?? 'cobalt', objectPath);
+    return result;
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, signInWithOtp, verifyOtp, updateProfile, signOut }}>
+    <AuthContext.Provider value={{ user, session, profile, loading, signInWithOtp, verifyOtp, updateProfile, uploadAvatar, signOut }}>
       {children}
     </AuthContext.Provider>
   );

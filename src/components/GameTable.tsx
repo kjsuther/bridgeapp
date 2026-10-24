@@ -10,6 +10,7 @@ import { sortHand, dummySeat, isVulnerable } from '@/context/GameContext';
 import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/bridge';
 import { SEATS, SUIT_SYMBOLS, STRAIN_SYMBOLS, sideOfSeat } from '@/types/bridge';
 import { getLegalCards } from '@/lib/play';
+import { highCardPoints } from '@/lib/dealing';
 import { AvatarFigure } from '@/components/AvatarFigure';
 import { DEFAULT_AVATAR_STYLE, isAvatarStyle, type AvatarStyle } from '@/lib/avatars';
 import { ProfileSettings } from '@/components/ProfileSettings';
@@ -139,6 +140,24 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
       if (isAvatarStyle(player.avatar_style)) map[player.seat] = player.avatar_style;
     });
     return map;
+  }, [players]);
+
+  const [seatToAvatarUrl, setSeatToAvatarUrl] = useState<Record<Seat, string | null>>({ N: null, E: null, S: null, W: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(players.map(async (player) => {
+        if (!player.avatar_url) return [player.seat, null] as const;
+        const { data } = await supabase.storage.from('profile-avatars').createSignedUrl(player.avatar_url, 3600);
+        return [player.seat, data?.signedUrl ?? null] as const;
+      }));
+      if (cancelled) return;
+      const next: Record<Seat, string | null> = { N: null, E: null, S: null, W: null };
+      entries.forEach(([seat, url]) => { next[seat] = url; });
+      setSeatToAvatarUrl(next);
+    })();
+    return () => { cancelled = true; };
   }, [players]);
 
   const legalCardSet = useMemo(() => {
@@ -328,8 +347,6 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   const myHandCards = getHand(mySeat);
   const myCardW = Math.max(44, computeHorizontalCardW(w - 40, edgeH - ZONE_PAD, myHandCards, 240));
 
-  // Video tiles live in the corners — they don't consume card space
-  const cornerVideoW = Math.min(160, w * 0.14, h * 0.16);
 
   let dummyCardW = 40;
   if (dummy && isDummyRevealed && phase === 'playing') {
@@ -375,6 +392,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
         isVulnerable={isVulnerable(seat, vulnerability)}
         seatLabel={seat}
         playerName={seatToName[seat] || seat}
+        hcp={phase === 'bidding' && seat === mySeat ? highCardPoints(getHand(seat)) : undefined}
       >
         <div className={`flex flex-col items-center gap-1 ${layout === 'side' ? 'max-w-full' : ''}`}>
           {showHand ? (
@@ -601,6 +619,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
               key={avatarPlay.key}
               side={viewSides[avatarPlay.seat]}
               avatarStyle={avatarPlay.seat === mySeat ? avatarStyle : seatToAvatarStyle[avatarPlay.seat]}
+              imageUrl={seatToAvatarUrl[avatarPlay.seat]}
               fast={fastAnimations}
             />
           )}
@@ -703,20 +722,26 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
             </div>
           )}
 
-          {/* Video tiles in the four corners — don't consume card space */}
+          {/* Cameras overlay each player's card area; the local feed stays small and unobtrusive. */}
           {SEATS.map((seat) => {
             const side = viewSides[seat];
-            // Map each seat to a corner: bottom→bottom-left, left→top-left, top→top-right, right→bottom-right
-            const cornerClass =
-              side === 'bottom' ? 'bottom-3 left-3' :
-              side === 'left'   ? 'top-3 left-3' :
-              side === 'top'    ? 'top-3 right-3' :
-                                  'bottom-3 right-3';
-            const seatName = seatToName[seat] || seat;
             const isLocal = seatToUserId[seat] === myUserId;
+            const isDummyCameraHidden = phase === 'playing' && isDummyRevealed && dummy === seat;
+            if (isDummyCameraHidden) return null;
+            const cameraPosition = isLocal
+              ? 'bottom-3 left-3'
+              : side === 'top'
+                ? 'top-3 left-1/2 -translate-x-1/2'
+                : side === 'left'
+                  ? 'left-3 top-1/2 -translate-y-1/2'
+                  : 'right-3 top-1/2 -translate-y-1/2';
+            const cameraWidth = isLocal
+              ? Math.min(128, w * 0.12, h * 0.16)
+              : Math.min(300, w * 0.23, h * 0.3);
+            const seatName = seatToName[seat] || seat;
             return (
-              <div key={`video-${seat}`} className={`absolute ${cornerClass} z-20`}>
-                <div className="relative" style={{ width: cornerVideoW }}>
+              <div key={`video-${seat}`} className={`pointer-events-auto absolute ${cameraPosition} z-20`}>
+                <div className="relative" style={{ width: cameraWidth }}>
                   <VideoTile
                     stream={getStreamForSeat(seat)}
                     displayName={seatName}
@@ -725,10 +750,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                     muted={isLocal || !outputEnabled}
                     className="w-full aspect-[4/3]"
                   />
-
-                  {phase === 'bidding' && lastBidPerSeat[seat] && (
-                    <BidBadge bid={lastBidPerSeat[seat]!.bid} />
-                  )}
+                  {phase === 'bidding' && lastBidPerSeat[seat] && <BidBadge bid={lastBidPerSeat[seat]!.bid} />}
                 </div>
               </div>
             );
@@ -790,11 +812,11 @@ function defaultAvatarForSeat(seat: Seat): AvatarStyle {
   return ({ N: 'cobalt', E: 'coral', S: 'mint', W: 'gold' } as Record<Seat, AvatarStyle>)[seat];
 }
 
-function AnimatedPlayCard({ side, avatarStyle, fast }: { side: ViewSide; avatarStyle: AvatarStyle; fast: boolean }) {
+function AnimatedPlayCard({ side, avatarStyle, imageUrl, fast }: { side: ViewSide; avatarStyle: AvatarStyle; imageUrl?: string | null; fast: boolean }) {
   return (
     <div className={`pointer-events-none absolute left-1/2 top-1/2 z-30 ${fast ? 'card-travel-fast' : ''} card-travel-from-${side}`}>
       <div className="-translate-x-1/2 -translate-y-1/2">
-        <AvatarFigure style={avatarStyle} active />
+        <AvatarFigure style={avatarStyle} imageUrl={imageUrl} active />
       </div>
     </div>
   );
@@ -806,10 +828,11 @@ interface SeatBadgeProps {
   isVulnerable: boolean;
   seatLabel: Seat;
   playerName: string;
+  hcp?: number;
   children: ReactNode;
 }
 
-function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, playerName, children }: SeatBadgeProps) {
+function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, playerName, hcp, children }: SeatBadgeProps) {
   return (
     <div className={`relative transition-all ${isTurn ? 'ring-2 ring-amber-400 rounded-xl p-1' : ''}`}>
       <div className="mb-1 flex items-center gap-1 overflow-hidden rounded bg-slate-900/90 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-sm">
@@ -817,6 +840,7 @@ function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, playerName, chil
         <span className="truncate">{playerName}</span>
         {isDealer && <span className="shrink-0 rounded bg-amber-500 px-1 text-[9px] text-white">D</span>}
         {isVulnerable && <span className="shrink-0 rounded bg-red-500 px-1 text-[9px] text-white">V</span>}
+        {hcp !== undefined && <span className="ml-auto shrink-0 rounded bg-emerald-500/20 px-1.5 text-[9px] text-emerald-300">HCP {hcp}</span>}
       </div>
       {children}
     </div>

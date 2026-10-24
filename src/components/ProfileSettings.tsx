@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { X, Check } from 'lucide-react';
+import { X, Check, Upload } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { AVATAR_STYLES, DEFAULT_AVATAR_STYLE, isAvatarStyle, type AvatarStyle } from '@/lib/avatars';
 import { AvatarFigure } from '@/components/AvatarFigure';
 
@@ -9,18 +10,46 @@ interface ProfileSettingsProps {
 }
 
 export function ProfileSettings({ onClose }: ProfileSettingsProps) {
-  const { profile, user, updateProfile } = useAuth();
+  const { profile, user, updateProfile, uploadAvatar } = useAuth();
   const [displayName, setDisplayName] = useState(profile?.display_name ?? '');
   const [avatarStyle, setAvatarStyle] = useState<AvatarStyle>(
     isAvatarStyle(profile?.avatar_style) ? profile.avatar_style : DEFAULT_AVATAR_STYLE,
   );
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setDisplayName(profile?.display_name ?? '');
     setAvatarStyle(isAvatarStyle(profile?.avatar_style) ? profile.avatar_style : DEFAULT_AVATAR_STYLE);
   }, [profile]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!profile?.avatar_url) {
+      setAvatarPreview(null);
+      return;
+    }
+    supabase.storage.from('profile-avatars').createSignedUrl(profile.avatar_url, 3600).then(({ data }) => {
+      if (!cancelled) setAvatarPreview(data?.signedUrl ?? null);
+    });
+    return () => { cancelled = true; };
+  }, [profile?.avatar_url]);
+
+  const handleUpload = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    const result = await uploadAvatar(file);
+    setUploading(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    const localPreview = URL.createObjectURL(file);
+    setAvatarPreview(localPreview);
+  };
 
   const handleSave = async () => {
     const nextName = displayName.trim();
@@ -67,6 +96,20 @@ export function ProfileSettings({ onClose }: ProfileSettingsProps) {
 
         <div className="mt-6">
           <p className="mb-3 text-sm font-medium text-slate-300">Choose an avatar</p>
+          <div className="mb-4 flex items-center gap-4 rounded-xl border border-slate-700 bg-slate-950/40 p-3">
+            <div className="h-16 w-16 overflow-hidden rounded-full border border-slate-600 bg-slate-800">
+              {avatarPreview ? <img src={avatarPreview} alt="Your uploaded avatar" className="h-full w-full object-cover" /> : <AvatarFigure style={avatarStyle} />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-slate-200">Upload your own image</p>
+              <p className="mt-1 text-xs text-slate-500">JPG, PNG, WEBP, or GIF up to 2 MB</p>
+              <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-600">
+                <Upload className="h-3.5 w-3.5" />
+                {uploading ? 'Uploading...' : 'Choose image'}
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={uploading || busy} onChange={(event) => { void handleUpload(event.target.files?.[0]); event.currentTarget.value = ''; }} className="sr-only" />
+              </label>
+            </div>
+          </div>
           <div className="grid grid-cols-4 gap-3">
             {(Object.keys(AVATAR_STYLES) as AvatarStyle[]).map((style) => (
               <button
@@ -88,7 +131,7 @@ export function ProfileSettings({ onClose }: ProfileSettingsProps) {
 
         <div className="mt-6 flex justify-end gap-3">
           <button onClick={onClose} disabled={busy} className="rounded-lg px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-800 disabled:opacity-50">Cancel</button>
-          <button onClick={handleSave} disabled={busy} className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50">
+          <button onClick={handleSave} disabled={busy || uploading} className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50">
             {busy ? 'Saving...' : 'Save profile'}
           </button>
         </div>

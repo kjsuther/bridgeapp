@@ -1,7 +1,21 @@
 import { AVATAR_STYLES, type AvatarStyle } from '@/lib/avatars';
 
-export function AvatarFigure({ style, active = false }: { style: AvatarStyle; active?: boolean }) {
+interface AvatarFigureProps {
+  style: AvatarStyle;
+  active?: boolean;
+  imageUrl?: string | null;
+}
+
+export function AvatarFigure({ style, active = false, imageUrl }: AvatarFigureProps) {
   const colors = AVATAR_STYLES[style];
+
+  if (imageUrl) {
+    return (
+      <div className={`relative h-12 w-12 overflow-hidden rounded-full border-2 border-white/70 shadow-lg ${active ? 'avatar-reach' : ''}`} aria-hidden="true">
+        <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+      </div>
+    );
+  }
 
   return (
     <div className={`relative h-12 w-10 ${active ? 'avatar-reach' : ''}`} aria-hidden="true">

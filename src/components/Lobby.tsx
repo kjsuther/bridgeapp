@@ -56,6 +56,7 @@ export function Lobby({ onJoinTable, onShowHistory }: LobbyProps) {
           seat: p.seat as Seat,
           display_name: '',
           avatar_style: null,
+          avatar_url: null,
         }));
       }
       setPlayersByTable(playerMap);

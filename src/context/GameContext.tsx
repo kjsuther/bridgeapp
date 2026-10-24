@@ -137,12 +137,12 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
         const userIds = tablePlayers.map((p) => p.user_id);
         const { data: profiles } = await supabase
           .from('profiles')
-          .select('id, display_name, avatar_style')
+          .select('id, display_name, avatar_style, avatar_url')
           .in('id', userIds);
 
-        const profMap: Record<string, { display_name: string; avatar_style: string | null }> = {};
+        const profMap: Record<string, { display_name: string; avatar_style: string | null; avatar_url: string | null }> = {};
         (profiles || []).forEach((p) => {
-          profMap[p.id] = { display_name: p.display_name, avatar_style: p.avatar_style };
+          profMap[p.id] = { display_name: p.display_name, avatar_style: p.avatar_style, avatar_url: p.avatar_url };
         });
 
         const seatPlayers: TablePlayer[] = tablePlayers.map((p) => ({
@@ -150,6 +150,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
           seat: p.seat as Seat,
           display_name: profMap[p.user_id]?.display_name ?? 'Unknown',
           avatar_style: profMap[p.user_id]?.avatar_style ?? null,
+          avatar_url: profMap[p.user_id]?.avatar_url ?? null,
         }));
 
         setPlayers(seatPlayers);
