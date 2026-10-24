@@ -1,4 +1,4 @@
-import type { Card, Seat, Suit, Rank } from '@/types/bridge';
+import type { Card, Seat, Suit } from '@/types/bridge';
 import { SUIT_SYMBOLS, RANK_DISPLAY } from '@/types/bridge';
 
 interface CardDisplayProps {
@@ -30,7 +30,6 @@ function CardFaceSVG({ card }: { card: Card }) {
   const color = isRedSuit(card.suit) ? '#c41e3a' : '#1a1a1a';
   const glyph = SUIT_SYMBOLS[card.suit];
   const rankStr = RANK_DISPLAY[card.rank];
-  const _ = card.rank as Rank;
 
   return (
     <svg
@@ -40,39 +39,15 @@ function CardFaceSVG({ card }: { card: Card }) {
     >
       <rect x={0.75} y={0.75} width={VB_W - 1.5} height={VB_H - 1.5} rx={4} ry={4} fill="#fefefe" stroke="#d1d5db" strokeWidth={0.8} />
 
-      {/* Corner indices */}
-      <text x={4} y={13} fontSize={9} fontWeight={800} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{rankStr}</text>
-      <text x={4} y={21} fontSize={8} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{glyph}</text>
+      {/* Large corner rank + suit (top-left) */}
+      <text x={5} y={16} fontSize={14} fontWeight={800} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{rankStr}</text>
+      <text x={5} y={27} fontSize={13} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{glyph}</text>
 
+      {/* Bottom-right rotated copy */}
       <g transform={`rotate(180 ${VB_W / 2} ${VB_H / 2})`}>
-        <text x={4} y={13} fontSize={9} fontWeight={800} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{rankStr}</text>
-        <text x={4} y={21} fontSize={8} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{glyph}</text>
+        <text x={5} y={16} fontSize={14} fontWeight={800} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{rankStr}</text>
+        <text x={5} y={27} fontSize={13} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{glyph}</text>
       </g>
-
-      {/* Large central rank */}
-      <text
-        x={VB_W / 2}
-        y={VB_H * 0.45}
-        fontSize={26}
-        fontWeight={800}
-        fill={color}
-        textAnchor="middle"
-        fontFamily="ui-sans-serif, system-ui, sans-serif"
-      >
-        {rankStr}
-      </text>
-
-      {/* Large central suit */}
-      <text
-        x={VB_W / 2}
-        y={VB_H * 0.75}
-        fontSize={22}
-        fill={color}
-        textAnchor="middle"
-        fontFamily="ui-sans-serif, system-ui, sans-serif"
-      >
-        {glyph}
-      </text>
     </svg>
   );
 }
@@ -160,10 +135,10 @@ export function HandDisplay({
   const cardW = cardWidth ?? CARD_WIDTH[size];
 
   if (!compact) {
-    // Player's own hand: horizontal fan — minimal overlap since just the corner index needs to show
-    const overlap = cardW * 0.55;
+    // Player's own hand: horizontal fan — heavy overlap, only corner needs to show
+    const overlap = cardW * 0.68;
     const cardAdvance = cardW - overlap;
-    const suitGap = cardW * 0.12;
+    const suitGap = cardW * 0.1;
     const nonEmptySuits = suits.filter((s) => bySuit[s].length > 0);
     const totalWidth = hand.length > 0
       ? cardW + (hand.length - 1) * cardAdvance + Math.max(0, nonEmptySuits.length - 1) * suitGap
@@ -199,7 +174,7 @@ export function HandDisplay({
     );
   }
 
-  // Compact mode: vertical suit columns — minimal vertical overlap since only the corner index matters
+  // Compact mode: vertical suit columns — heavy vertical overlap, only corner needs to show
   return (
     <div className={`flex flex-col gap-0.5 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-1.5' : ''}`}>
       {label && (
@@ -232,9 +207,9 @@ function SuitColumnHand({
   legalCards?: Set<string>;
 }) {
   const cardH = cardW * 1.4;
-  const vOverlap = cardH * 0.58;
+  const vOverlap = cardH * 0.78;
   const vAdvance = cardH - vOverlap;
-  const suitGap = cardW * 0.1;
+  const suitGap = cardW * 0.08;
   const nonEmptySuits = suits.filter((s) => bySuit[s].length > 0);
   const maxColCards = Math.max(1, ...nonEmptySuits.map((s) => bySuit[s].length));
   const totalWidth = nonEmptySuits.length * cardW + Math.max(0, nonEmptySuits.length - 1) * suitGap;
@@ -370,7 +345,7 @@ export function DummyHandDisplay({
 
   return (
     <div className={`flex flex-col gap-0.5 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-1.5' : ''}`}>
-      <span className="text-xs font-semibold text-amber-400">Dummy</span>
+      <span className="text-sm font-bold text-amber-400">Dummy</span>
       <SuitColumnHand
         suits={suits}
         bySuit={bySuit}

@@ -52,18 +52,18 @@ function rotationFor(mySeat: Seat): Record<Seat, ViewSide> {
 function handWidthFactor(hand: Card[]): number {
   if (hand.length === 0) return 1;
   const suits = new Set(hand.map(c => c.suit));
-  return 1 + (hand.length - 1) * 0.45 + Math.max(0, suits.size - 1) * 0.12;
+  return 1 + (hand.length - 1) * 0.32 + Math.max(0, suits.size - 1) * 0.1;
 }
 
 function suitColumnFactors(hand: Card[]) {
-  if (hand.length === 0) return { widthFactor: 1.1, heightFactor: 1.4 };
+  if (hand.length === 0) return { widthFactor: 1.08, heightFactor: 1.4 };
   const bySuit: Record<string, Card[]> = {};
   for (const c of hand) (bySuit[c.suit] ??= []).push(c);
   const cols = Object.values(bySuit).filter(a => a.length > 0);
   const numCols = cols.length || 1;
   const maxColCards = Math.max(1, ...cols.map(a => a.length));
-  const widthFactor = numCols * 1.1 - 0.1;
-  const heightFactor = 1.4 * (1 + (maxColCards - 1) * 0.42);
+  const widthFactor = numCols * 1.08 - 0.08;
+  const heightFactor = 1.4 * (1 + (maxColCards - 1) * 0.22);
   return { widthFactor, heightFactor };
 }
 
@@ -265,10 +265,10 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   const ZONE_PAD = 8;
 
   const myHandCards = getHand(mySeat);
-  const myCardW = Math.max(36, Math.min(
+  const myCardW = Math.max(40, Math.min(
     (w - 40) / handWidthFactor(myHandCards),
     (edgeH - ZONE_PAD) / 1.4,
-    200,
+    220,
   ));
 
   const sideVideoW = Math.min(130, edgeW * 0.55, centerH * 0.2);
@@ -283,24 +283,25 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     const dummySide = viewSides[dummy];
     const dummyHandCards = getHand(dummy);
     if (dummySide === 'top' || dummySide === 'bottom') {
-      const vH = tbVideoH;
+      // Give dummy most of the zone — video tile is small when dummy is shown
+      const vH = tbVideoH * 0.5;
       const zoneW = w - 40;
       const zoneH = edgeH - vH - VIDEO_GAP - ZONE_PAD;
-      dummyCardW = computeSuitColumnCardW(zoneW, Math.max(30, zoneH), dummyHandCards, 140);
+      dummyCardW = computeSuitColumnCardW(zoneW, Math.max(40, zoneH), dummyHandCards, 180);
     } else {
-      const vH = sideVideoH;
+      const vH = sideVideoH * 0.5;
       const zoneW = edgeW - ZONE_PAD;
       const zoneH = centerH - vH - VIDEO_GAP - ZONE_PAD;
-      dummyCardW = computeSuitColumnCardW(Math.max(30, zoneW), Math.max(30, zoneH), dummyHandCards, 100);
+      dummyCardW = computeSuitColumnCardW(Math.max(40, zoneW), Math.max(40, zoneH), dummyHandCards, 140);
     }
   }
 
   const otherHandCards = SEATS.filter(s => s !== mySeat && s !== dummy).map(s => getHand(s)).find(h => h.length > 0) || [];
-  const otherCardW = Math.max(32, Math.min(
-    computeSuitColumnCardW(edgeW - ZONE_PAD, edgeH - tbVideoH - VIDEO_GAP - ZONE_PAD, otherHandCards, 88),
-    88,
+  const otherCardW = Math.max(34, Math.min(
+    computeSuitColumnCardW(edgeW - ZONE_PAD, edgeH - tbVideoH - VIDEO_GAP - ZONE_PAD, otherHandCards, 96),
+    96,
   ));
-  const playedCardW = Math.max(48, Math.min(centerW * 0.26, centerH * 0.26, 120));
+  const playedCardW = Math.max(52, Math.min(centerW * 0.28, centerH * 0.28, 130));
   const trickAreaSize = Math.min(centerW * 0.8, centerH * 0.8, 300);
 
   const seatBySide: Record<ViewSide, Seat | null> = { top: null, bottom: null, left: null, right: null };
@@ -316,7 +317,9 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     const showHand = shouldShowHand(seat);
     const isTurnNow = currentSeat === seat && phase !== 'finished';
     const cardW = isMe ? myCardW : isDummySeatHere ? dummyCardW : otherCardW;
-    const vW = side === 'left' || side === 'right' ? sideVideoW : tbVideoW;
+    // Shrink video tile for dummy seat so cards get more space
+    const baseVW = side === 'left' || side === 'right' ? sideVideoW : tbVideoW;
+    const vW = isDummySeatHere ? Math.min(baseVW, 72) : baseVW;
 
     return (
       <SeatBadge
