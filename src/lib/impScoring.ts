@@ -61,29 +61,20 @@ export function rawScoreForNS(contract: Contract, vulnerability: Vulnerability):
 /**
  * Compute the team-perspective score for a single hand playing.
  *
- * Teams are identified by compass direction at the time of the original deal:
- *   Team A = N+S, Team B = E+W
- *
- * In the original playing, team A sits NS and team B sits EW.
- * In the replay (swapped), team A sits EW and team B sits NS.
+ * Teams are identified by compass direction at the table: Team A = N+S,
+ * Team B = E+W. Players stay in their seats for both playings; only the
+ * cards are swapped between partnerships on the replay. So Team A is
+ * always N+S, and the raw NS score is the Team A score for both playings.
  *
  * @param contract - the contract result of the hand
  * @param vulnerability - vulnerability for this hand
- * @param isReplay - true if this is the swapped-seat replay
  * @returns points from Team A's perspective (positive = Team A scored)
  */
 export function teamScore(
   contract: Contract,
   vulnerability: Vulnerability,
-  isReplay: boolean,
 ): number {
-  const nsScore = rawScoreForNS(contract, vulnerability);
-  if (isReplay) {
-    // In replay, teams swapped: Team A was EW, so their score = -nsScore
-    return -nsScore;
-  }
-  // Original: Team A = NS
-  return nsScore;
+  return rawScoreForNS(contract, vulnerability);
 }
 
 /**
@@ -99,8 +90,8 @@ export function computeImpResult(
   replayContract: Contract,
   vulnerability: Vulnerability,
 ): number {
-  const originalTeamA = teamScore(originalContract, vulnerability, false);
-  const replayTeamA = teamScore(replayContract, vulnerability, true);
+  const originalTeamA = teamScore(originalContract, vulnerability);
+  const replayTeamA = teamScore(replayContract, vulnerability);
   const netPoints = originalTeamA + replayTeamA;
   return pointsToImps(netPoints);
 }

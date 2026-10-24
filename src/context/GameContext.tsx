@@ -595,9 +595,10 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
           const imps = computeImpResult(origContract, replayContract, origVul);
           const origNsScore = rawScoreForNS(origContract, origVul);
           const replayNsScore = rawScoreForNS(replayContract, origVul);
-          const netPoints = origNsScore + replayNsScore; // from NS perspective, but replay is swapped
-          // Team A = originally N+S. In original, team A = NS. In replay, team A = EW (swapped).
-          // computeImpResult already handles the swap: positive imps = Team A wins.
+          // Players stay in their seats for both playings; only the cards swap.
+          // Team A = N+S in both playings, so the net points are the sum of the
+          // raw NS scores. computeImpResult returns positive = Team A wins.
+          const netPoints = origNsScore + replayNsScore;
           const impResult = {
             originalHandId: replayHand.original_hand_id,
             replayHandId: currentHandId,
