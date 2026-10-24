@@ -261,47 +261,40 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   const edgeH = (h - centerH) / 2;
   const edgeW = (w - centerW) / 2;
 
-  const VIDEO_GAP = 8;
   const ZONE_PAD = 8;
 
   const myHandCards = getHand(mySeat);
-  const myCardW = Math.max(40, Math.min(
+  const myCardW = Math.max(44, Math.min(
     (w - 40) / handWidthFactor(myHandCards),
     (edgeH - ZONE_PAD) / 1.4,
-    220,
+    240,
   ));
 
-  const sideVideoW = Math.min(130, edgeW * 0.55, centerH * 0.2);
-  const sideVideoH = sideVideoW * 0.75;
-  const tbVideoW = Math.min(160, w * 0.14, edgeH * 0.45);
-  const tbVideoH = tbVideoW * 0.75;
-  const myVideoW = Math.min(120, w * 0.1);
-  const myVideoH = myVideoW * 0.75;
+  // Video tiles live in the corners — they don't consume card space
+  const cornerVideoW = Math.min(160, w * 0.14, h * 0.16);
+  const cornerVideoH = cornerVideoW * 0.75;
 
   let dummyCardW = 40;
   if (dummy && isDummyRevealed && phase === 'playing') {
     const dummySide = viewSides[dummy];
     const dummyHandCards = getHand(dummy);
     if (dummySide === 'top' || dummySide === 'bottom') {
-      // Give dummy most of the zone — video tile is small when dummy is shown
-      const vH = tbVideoH * 0.5;
       const zoneW = w - 40;
-      const zoneH = edgeH - vH - VIDEO_GAP - ZONE_PAD;
-      dummyCardW = computeSuitColumnCardW(zoneW, Math.max(40, zoneH), dummyHandCards, 180);
+      const zoneH = edgeH - ZONE_PAD;
+      dummyCardW = computeSuitColumnCardW(zoneW, Math.max(40, zoneH), dummyHandCards, 200);
     } else {
-      const vH = sideVideoH * 0.5;
       const zoneW = edgeW - ZONE_PAD;
-      const zoneH = centerH - vH - VIDEO_GAP - ZONE_PAD;
-      dummyCardW = computeSuitColumnCardW(Math.max(40, zoneW), Math.max(40, zoneH), dummyHandCards, 140);
+      const zoneH = centerH - ZONE_PAD;
+      dummyCardW = computeSuitColumnCardW(Math.max(40, zoneW), Math.max(40, zoneH), dummyHandCards, 160);
     }
   }
 
   const otherHandCards = SEATS.filter(s => s !== mySeat && s !== dummy).map(s => getHand(s)).find(h => h.length > 0) || [];
-  const otherCardW = Math.max(34, Math.min(
-    computeSuitColumnCardW(edgeW - ZONE_PAD, edgeH - tbVideoH - VIDEO_GAP - ZONE_PAD, otherHandCards, 96),
-    96,
+  const otherCardW = Math.max(36, Math.min(
+    computeSuitColumnCardW(edgeW - ZONE_PAD, edgeH - ZONE_PAD, otherHandCards, 110),
+    110,
   ));
-  const playedCardW = Math.max(52, Math.min(centerW * 0.28, centerH * 0.28, 130));
+  const playedCardW = Math.max(56, Math.min(centerW * 0.3, centerH * 0.3, 140));
   const trickAreaSize = Math.min(centerW * 0.8, centerH * 0.8, 300);
 
   const seatBySide: Record<ViewSide, Seat | null> = { top: null, bottom: null, left: null, right: null };
@@ -310,16 +303,11 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   }
 
   const renderSeatContent = (seat: Seat) => {
-    const side = viewSides[seat];
     const isMe = seat === mySeat;
-    const seatName = seatToName[seat] || seat;
     const isDummySeatHere = dummy === seat && isDummyRevealed && phase === 'playing';
     const showHand = shouldShowHand(seat);
     const isTurnNow = currentSeat === seat && phase !== 'finished';
     const cardW = isMe ? myCardW : isDummySeatHere ? dummyCardW : otherCardW;
-    // Shrink video tile for dummy seat so cards get more space
-    const baseVW = side === 'left' || side === 'right' ? sideVideoW : tbVideoW;
-    const vW = isDummySeatHere ? Math.min(baseVW, 72) : baseVW;
 
     return (
       <SeatBadge
@@ -328,22 +316,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
         isVulnerable={isVulnerable(seat, vulnerability)}
         seatLabel={seat}
       >
-        <div className="flex flex-col items-center gap-2">
-          {!isMe && (
-            <div className="relative" style={{ width: vW }}>
-              <VideoTile
-                stream={getStreamForSeat(seat)}
-                displayName={seatName}
-                seat={seat}
-                isLocal={seatToUserId[seat] === myUserId}
-                muted={!outputEnabled}
-                className="w-full aspect-[4/3]"
-              />
-              {phase === 'bidding' && lastBidPerSeat[seat] && (
-                <BidBadge bid={lastBidPerSeat[seat]!.bid} />
-              )}
-            </div>
-          )}
+        <div className="flex flex-col items-center gap-1">
           {showHand ? (
             dummy === seat && isDummyRevealed && phase === 'playing' ? (
               <DummyHandDisplay
@@ -576,24 +549,35 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
             </div>
           )}
 
-          {/* Player's own webcam — fixed to the corner so it doesn't consume table space */}
-          {mySeat && (
-            <div className="absolute bottom-3 left-3 z-20">
-              <div className="relative" style={{ width: myVideoW }}>
-                <VideoTile
-                  stream={getStreamForSeat(mySeat)}
-                  displayName={seatToName[mySeat] || mySeat}
-                  seat={mySeat}
-                  isLocal
-                  muted
-                  className="w-full aspect-[4/3]"
-                />
-                {phase === 'bidding' && lastBidPerSeat[mySeat] && (
-                  <BidBadge bid={lastBidPerSeat[mySeat]!.bid} />
-                )}
+          {/* Video tiles in the four corners — don't consume card space */}
+          {SEATS.map((seat) => {
+            const side = viewSides[seat];
+            // Map each seat to a corner: bottom→bottom-left, left→top-left, top→top-right, right→bottom-right
+            const cornerClass =
+              side === 'bottom' ? 'bottom-3 left-3' :
+              side === 'left'   ? 'top-3 left-3' :
+              side === 'top'    ? 'top-3 right-3' :
+                                  'bottom-3 right-3';
+            const seatName = seatToName[seat] || seat;
+            const isLocal = seatToUserId[seat] === myUserId;
+            return (
+              <div key={`video-${seat}`} className={`absolute ${cornerClass} z-20`}>
+                <div className="relative" style={{ width: cornerVideoW }}>
+                  <VideoTile
+                    stream={getStreamForSeat(seat)}
+                    displayName={seatName}
+                    seat={seat}
+                    isLocal={isLocal}
+                    muted={isLocal || !outputEnabled}
+                    className="w-full aspect-[4/3]"
+                  />
+                  {phase === 'bidding' && lastBidPerSeat[seat] && (
+                    <BidBadge bid={lastBidPerSeat[seat]!.bid} />
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })}
 
           {/* Error display */}
           {error && (
