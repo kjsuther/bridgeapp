@@ -726,16 +726,20 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           {SEATS.map((seat) => {
             const side = viewSides[seat];
             const isLocal = seatToUserId[seat] === myUserId;
+            const isDeclarerCameraForDummy = isDummySeat && contract?.declarer === seat;
             const isDummyCameraHidden = phase === 'playing' && isDummyRevealed && dummy === seat;
             if (isDummyCameraHidden) return null;
+            const isSmallCamera = isLocal || isDeclarerCameraForDummy;
             const cameraPosition = isLocal
               ? 'bottom-3 left-3'
-              : side === 'top'
-                ? 'top-3 left-1/2 -translate-x-1/2'
-                : side === 'left'
-                  ? 'left-3 top-1/2 -translate-y-1/2'
-                  : 'right-3 top-1/2 -translate-y-1/2';
-            const cameraWidth = isLocal
+              : isDeclarerCameraForDummy
+                ? 'bottom-3 right-3'
+                : side === 'top'
+                  ? 'top-3 left-1/2 -translate-x-1/2'
+                  : side === 'left'
+                    ? 'left-3 top-1/2 -translate-y-1/2'
+                    : 'right-3 top-1/2 -translate-y-1/2';
+            const cameraWidth = isSmallCamera
               ? Math.min(128, w * 0.12, h * 0.16)
               : Math.min(300, w * 0.23, h * 0.3);
             const seatName = seatToName[seat] || seat;
