@@ -283,7 +283,7 @@ function SuitColumnHand({
   overlap?: number;
 }) {
   const cardH = cardW * 1.4;
-  const vOverlap = cardH * 0.78;
+  const vOverlap = cardH * overlap;
   const vAdvance = cardH - vOverlap;
   const suitGap = cardW * 0.08;
   const nonEmptySuits = suits.filter((s) => bySuit[s].length > 0);

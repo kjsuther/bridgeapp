@@ -15,11 +15,13 @@ interface SeatAssignment {
   user_id: string;
   seat: Seat;
   display_name: string;
+  email: string | null;
 }
 
 interface ProfileOption {
   id: string;
   display_name: string;
+  email: string | null;
 }
 
 export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
@@ -54,7 +56,7 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
       // Get host display name
       const { data: hostProfile } = await supabase
         .from('profiles')
-        .select('display_name')
+        .select('display_name, email')
         .eq('id', tableData.host_id)
         .maybeSingle();
       setHostName(hostProfile?.display_name ?? 'Host');
@@ -85,12 +87,12 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
       const userIds = players.map((p) => p.user_id);
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('id, display_name')
+        .select('id, display_name, email')
         .in('id', userIds);
 
-      const profMap: Record<string, string> = {};
+      const profMap: Record<string, { display_name: string; email: string | null }> = {};
       (profiles || []).forEach((p) => {
-        profMap[p.id] = p.display_name;
+        profMap[p.id] = { display_name: p.display_name, email: p.email };
       });
 
       const seatMap: Record<Seat, SeatAssignment | null> = { N: null, E: null, S: null, W: null };
@@ -98,7 +100,8 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
         seatMap[p.seat as Seat] = {
           user_id: p.user_id,
           seat: p.seat as Seat,
-          display_name: profMap[p.user_id] ?? 'Unknown',
+          display_name: profMap[p.user_id]?.display_name ?? 'Unknown',
+          email: profMap[p.user_id]?.email ?? null,
         };
       });
       setSeats(seatMap);
@@ -110,7 +113,7 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
     (async () => {
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('id, display_name')
+        .select('id, display_name, email')
         .order('display_name', { ascending: true });
 
       if (profiles) {
@@ -453,11 +456,11 @@ function SeatSlot({
             <option value="">— Empty —</option>
             {options.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.display_name}
+                {p.display_name}{p.email ? ` — ${p.email}` : ''}
               </option>
             ))}
             {assignment && !options.find((o) => o.id === assignment.user_id) && (
-              <option value={assignment.user_id}>{assignment.display_name}</option>
+              <option value={assignment.user_id}>{assignment.display_name}{assignment.email ? ` — ${assignment.email}` : ''}</option>
             )}
           </select>
           {assignment && (
@@ -475,7 +478,8 @@ function SeatSlot({
         <div className="text-center py-2">
           {assignment ? (
             <span className="text-white font-medium flex items-center justify-center gap-1.5">
-              {assignment.display_name}
+              <span>{assignment.display_name}</span>
+              {assignment.email && <span className="text-xs font-normal text-slate-400">{assignment.email}</span>}
             </span>
           ) : (
             <span className="text-slate-500 text-sm">Empty</span>

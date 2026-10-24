@@ -5,7 +5,9 @@ import { supabase } from '@/lib/supabase';
 interface Profile {
   id: string;
   display_name: string;
+  email: string | null;
   avatar_url: string | null;
+  avatar_style: string | null;
 }
 
 interface AuthContextValue {
@@ -15,6 +17,7 @@ interface AuthContextValue {
   loading: boolean;
   signInWithOtp: (email: string) => Promise<{ error: string | null }>;
   verifyOtp: (email: string, token: string) => Promise<{ error: string | null }>;
+  updateProfile: (displayName: string, avatarStyle: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -57,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, display_name, avatar_url')
+        .select('id, display_name, email, avatar_url, avatar_style')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -76,8 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           'Player';
         const { data: newProfile } = await supabase
           .from('profiles')
-          .insert({ id: user.id, display_name: fallbackName })
-          .select('id, display_name, avatar_url')
+          .insert({ id: user.id, display_name: fallbackName, email: user.email ?? null })
+          .select('id, display_name, email, avatar_url, avatar_style')
           .maybeSingle();
 
         if (!cancelled && newProfile) {
@@ -114,12 +117,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null };
   };
 
+  const updateProfile = async (displayName: string, avatarStyle: string) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ display_name: displayName, avatar_style: avatarStyle })
+      .eq('id', user?.id ?? '')
+      .select('id, display_name, email, avatar_url, avatar_style')
+      .maybeSingle();
+
+    if (error || !data) {
+      return { error: error?.message ?? 'Your profile could not be updated.' };
+    }
+
+    setProfile(data as Profile);
+    return { error: null };
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, signInWithOtp, verifyOtp, signOut }}>
+    <AuthContext.Provider value={{ user, session, profile, loading, signInWithOtp, verifyOtp, updateProfile, signOut }}>
       {children}
     </AuthContext.Provider>
   );

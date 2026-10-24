@@ -118,6 +118,7 @@ export interface TablePlayer {
   user_id: string;
   seat: Seat;
   display_name: string;
+  avatar_style: string | null;
 }
 
 export const SEATS: Seat[] = ['N', 'E', 'S', 'W'];

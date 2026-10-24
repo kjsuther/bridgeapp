@@ -4,6 +4,9 @@ import { useAuth } from '@/context/AuthContext';
 import type { Seat, TablePlayer } from '@/types/bridge';
 import { SEATS } from '@/types/bridge';
 import { LogOut, Plus, Users, ArrowRight, History as HistoryIcon } from 'lucide-react';
+import { ProfileSettings } from '@/components/ProfileSettings';
+import { AvatarFigure } from '@/components/AvatarFigure';
+import { DEFAULT_AVATAR_STYLE, isAvatarStyle } from '@/lib/avatars';
 
 interface TableInfo {
   id: string;
@@ -26,6 +29,7 @@ export function Lobby({ onJoinTable, onShowHistory }: LobbyProps) {
   const [tableName, setTableName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
   const [allProfiles, setAllProfiles] = useState<Record<string, string>>({});
   const lastKnownTableIds = useRef<Set<string>>(new Set());
 
@@ -51,6 +55,7 @@ export function Lobby({ onJoinTable, onShowHistory }: LobbyProps) {
           user_id: p.user_id,
           seat: p.seat as Seat,
           display_name: '',
+          avatar_style: null,
         }));
       }
       setPlayersByTable(playerMap);
@@ -154,7 +159,14 @@ export function Lobby({ onJoinTable, onShowHistory }: LobbyProps) {
               <p className="text-sm text-slate-400">Welcome, {profile?.display_name}</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setProfileSettingsOpen(true)}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
+            >
+              <AvatarFigure style={isAvatarStyle(profile?.avatar_style) ? profile.avatar_style : DEFAULT_AVATAR_STYLE} />
+              <span className="hidden sm:inline">Profile</span>
+            </button>
             <button
               onClick={onShowHistory}
               className="flex items-center gap-2 px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
@@ -287,6 +299,7 @@ export function Lobby({ onJoinTable, onShowHistory }: LobbyProps) {
           })}
         </div>
       </div>
+      {profileSettingsOpen && <ProfileSettings onClose={() => setProfileSettingsOpen(false)} />}
     </div>
   );
 }
