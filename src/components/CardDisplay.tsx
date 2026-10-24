@@ -201,6 +201,7 @@ interface HandDisplayProps {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   cardWidth?: number;
   trumpStrain?: string;
+  compact?: boolean;
 }
 
 export function HandDisplay({
@@ -214,6 +215,7 @@ export function HandDisplay({
   size = 'sm',
   cardWidth,
   trumpStrain,
+  compact = true,
 }: HandDisplayProps) {
   if (hidden) {
     return (
@@ -229,6 +231,45 @@ export function HandDisplay({
   for (const card of hand) bySuit[card.suit].push(card);
   const rankWidth = Math.max(14, Math.min(28, (cardWidth ?? CARD_WIDTH[size]) * 0.32));
   const rankFontSize = Math.max(11, Math.min(15, rankWidth * 0.55));
+
+  if (!compact) {
+    const cardW = cardWidth ?? CARD_WIDTH[size];
+    const overlap = cardW * 0.62;
+    const cardAdvance = cardW - overlap;
+    const suitGap = cardW * 0.25;
+    const totalWidth = hand.length > 0
+      ? cardW + (hand.length - 1) * cardAdvance + Math.max(0, suits.filter((s) => bySuit[s].length > 0).length - 1) * suitGap
+      : 0;
+
+    return (
+      <div className={`flex flex-col items-center gap-1 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-2' : ''}`}>
+        {label && <span className="text-xs font-semibold text-slate-200">{label}</span>}
+        <div className="flex items-center justify-center" style={{ minWidth: totalWidth }}>
+          {suits.map((suit, suitIdx) => bySuit[suit].length > 0 && (
+            <div key={suit} className="flex items-center" style={suitIdx > 0 ? { marginLeft: suitGap } : undefined}>
+              {bySuit[suit].map((card, cardIdx) => {
+                const cardKey = `${card.rank}${card.suit}`;
+                const isLegal = legalCards?.has(cardKey) ?? false;
+                const canClick = !!onCardClick && (legalCards ? isLegal : true);
+                return (
+                  <div key={cardKey} className="relative" style={{ zIndex: cardIdx, ...(cardIdx > 0 ? { marginLeft: -overlap } : {}) }}>
+                    <CardDisplay
+                      card={card}
+                      size={size}
+                      cardWidth={cardWidth}
+                      onClick={canClick ? () => onCardClick(card) : undefined}
+                      disabled={!canClick}
+                      highlight={isLegal && !!onCardClick}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex flex-col gap-1 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-2' : ''}`}>

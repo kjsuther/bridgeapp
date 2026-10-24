@@ -359,6 +359,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                 isDummy={dummy === seat && isDummyRevealed}
                 isTurn={isTurnNow && phase === 'playing'}
                 trumpStrain={contract?.strain}
+                compact={isMe ? false : true}
                 onCardClick={getCardClickHandler(seat)}
                 legalCards={getLegalCardsForDisplay(seat)}
               />
