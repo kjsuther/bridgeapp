@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import type { Seat, TablePlayer } from '@/types/bridge';
 import { SEATS } from '@/types/bridge';
-import { LogOut, Plus, Users, ArrowRight, History as HistoryIcon } from 'lucide-react';
+import { LogOut, Plus, Users, ArrowRight, History as HistoryIcon, Shield } from 'lucide-react';
 import { ProfileSettings } from '@/components/ProfileSettings';
 import { AvatarFigure } from '@/components/AvatarFigure';
 import { DEFAULT_AVATAR_STYLE, isAvatarStyle } from '@/lib/avatars';
@@ -19,10 +19,11 @@ interface TableInfo {
 interface LobbyProps {
   onJoinTable: (tableId: string) => void;
   onShowHistory: () => void;
+  onShowAdmin: () => void;
 }
 
-export function Lobby({ onJoinTable, onShowHistory }: LobbyProps) {
-  const { profile, signOut } = useAuth();
+export function Lobby({ onJoinTable, onShowHistory, onShowAdmin }: LobbyProps) {
+  const { profile, signOut, user } = useAuth();
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [playersByTable, setPlayersByTable] = useState<Record<string, TablePlayer[]>>({});
   const [showCreate, setShowCreate] = useState(false);
@@ -175,6 +176,15 @@ export function Lobby({ onJoinTable, onShowHistory }: LobbyProps) {
               <HistoryIcon className="w-4 h-4" />
               History
             </button>
+            {user?.email === 'kjsuther@gmail.com' && (
+              <button
+                onClick={onShowAdmin}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+              >
+                <Shield className="w-4 h-4" />
+                Admin
+              </button>
+            )}
             <button
               onClick={() => signOut()}
               className="flex items-center gap-2 px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"

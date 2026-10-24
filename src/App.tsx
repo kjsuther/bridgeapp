@@ -7,12 +7,14 @@ import { TableSetup } from '@/components/TableSetup';
 import { GameTable } from '@/components/GameTable';
 import { GameProvider } from '@/context/GameContext';
 import { History } from '@/components/History';
+import { AdminDashboard } from '@/components/AdminDashboard';
 
 type View =
   | { type: 'lobby' }
   | { type: 'table-setup'; tableId: string }
   | { type: 'game'; tableId: string; gameId: string }
-  | { type: 'history' };
+  | { type: 'history' }
+  | { type: 'admin' };
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -45,6 +47,7 @@ function AppContent() {
       <Lobby
         onJoinTable={(tableId) => setView({ type: 'table-setup', tableId })}
         onShowHistory={() => setView({ type: 'history' })}
+        onShowAdmin={() => setView({ type: 'admin' })}
       />
     );
   }
@@ -72,6 +75,10 @@ function AppContent() {
 
   if (view.type === 'history') {
     return <History onBack={() => setView({ type: 'lobby' })} />;
+  }
+
+  if (view.type === 'admin') {
+    return <AdminDashboard onBack={() => setView({ type: 'lobby' })} />;
   }
 
   return null;
