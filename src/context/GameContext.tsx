@@ -53,6 +53,9 @@ interface GameContextValue {
   startNewHand: () => Promise<void>;
   handRole: HandRole;
   matchState: MatchState;
+  newHandsBeforeReplay: number;
+  replaysStarted: boolean;
+  hostId: string | null;
   loading: boolean;
   error: string | null;
 }
@@ -91,6 +94,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     completedBoards: [],
   });
   const [newHandsBeforeReplay, setNewHandsBeforeReplay] = useState(10);
+  const [replaysStarted, setReplaysStarted] = useState(false);
+  const [hostId, setHostId] = useState<string | null>(null);
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,7 +165,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   // Load game state
   const loadGameState = useCallback(async () => {
     // Fetch game, table, and latest hand in parallel
-    const [gameResult, tableResult, handsResult] = await Promise.all([
+    const [gameResult, tableResult, handsResult, replayResult] = await Promise.all([
       supabase
         .from('games')
         .select('*')
@@ -168,7 +173,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
         .maybeSingle(),
       supabase
         .from('tables')
-        .select('match_imps_a, match_imps_b, match_board_number, new_hands_before_replay')
+        .select('match_imps_a, match_imps_b, match_board_number, new_hands_before_replay, host_id')
         .eq('id', tableId)
         .maybeSingle(),
       supabase
@@ -177,11 +182,20 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
         .eq('game_id', gameId)
         .order('hand_number', { ascending: false })
         .limit(1),
+      supabase
+        .from('hands')
+        .select('id')
+        .eq('game_id', gameId)
+        .eq('hand_role', 'replay')
+        .limit(1),
     ]);
 
     const game = gameResult.data;
     const tableData = tableResult.data;
     const hands = handsResult.data;
+
+    setReplaysStarted(Boolean(replayResult.data && replayResult.data.length > 0));
+    setHostId(tableData?.host_id ?? null);
 
     if (!game) {
       setLoading(false);
@@ -957,9 +971,12 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     startNewHand,
     handRole,
     matchState,
+    newHandsBeforeReplay,
+    replaysStarted,
+    hostId,
     loading,
     error,
-  };
+ };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
 }

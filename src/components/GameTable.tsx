@@ -13,6 +13,7 @@ import { getLegalCards } from '@/lib/play';
 import { AvatarFigure } from '@/components/AvatarFigure';
 import { DEFAULT_AVATAR_STYLE, isAvatarStyle, type AvatarStyle } from '@/lib/avatars';
 import { ProfileSettings } from '@/components/ProfileSettings';
+import { supabase } from '@/lib/supabase';
 import {
   Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap,
 } from 'lucide-react';
@@ -104,6 +105,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     playState, phase, passedOut, isMyTurn, currentSeat,
     legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading,
     handRole, matchState,
+    newHandsBeforeReplay, replaysStarted, hostId,
   } = game;
 
   const myUserId = profile?.id ?? '';
@@ -166,6 +168,9 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   const [animToggleOpen, setAnimToggleOpen] = useState(false);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [fastAnimations, setFastAnimations] = useState(false);
+  const [replaySetting, setReplaySetting] = useState(newHandsBeforeReplay);
+
+  useEffect(() => { setReplaySetting(newHandsBeforeReplay); }, [newHandsBeforeReplay]);
   const [avatarPlay, setAvatarPlay] = useState<{ seat: Seat; card: Card; key: string } | null>(null);
   const currentTrick = playState?.currentTrick ?? [];
   const currentTrickCard = currentTrick.length > 0 ? currentTrick[currentTrick.length - 1] : null;
@@ -282,6 +287,8 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     if (userId === myUserId) return localStream;
     return peerStreams.get(userId) ?? null;
   };
+
+  const isHost = hostId === myUserId;
 
   const hasCardsPlayed = (playState?.currentTrick.length ?? 0) > 0 || (playState?.completedTricks.length ?? 0) > 0;
   const canRequestUndo = (() => {
@@ -465,6 +472,38 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                   Fast play
                   <input type="checkbox" checked={fastAnimations} disabled={!animationsEnabled} onChange={(event) => setFastAnimations(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
                 </label>
+                {isHost && (
+                  <div className="mt-3 border-t border-slate-700/50 pt-3">
+                    <label className="flex items-center justify-between text-xs text-slate-300 py-1.5">
+                      <span className="whitespace-nowrap">New hands before replay</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={99}
+                        value={replaySetting}
+                        disabled={replaysStarted}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          if (!isNaN(v) && v >= 1) setReplaySetting(v);
+                        }}
+                        onBlur={() => {
+                          if (replaysStarted) return;
+                          const v = Math.max(1, Math.min(99, replaySetting));
+                          setReplaySetting(v);
+                          supabase
+                            .from('tables')
+                            .update({ new_hands_before_replay: v })
+                            .eq('id', tableId)
+                            .then();
+                        }}
+                        className="w-14 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-white text-xs text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      />
+                    </label>
+                    {replaysStarted && (
+                      <p className="text-[10px] text-slate-500 mt-1">Locked — replays have already started.</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
