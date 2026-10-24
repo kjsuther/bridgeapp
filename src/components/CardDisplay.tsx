@@ -23,39 +23,14 @@ function isRedSuit(suit: Suit): boolean {
   return suit === 'H' || suit === 'D';
 }
 
-function isFaceCard(rank: Rank): boolean {
-  return rank === 'J' || rank === 'Q' || rank === 'K';
-}
-
-function faceCardPath(rank: Rank, suit: Suit): string {
-  return `/${rank}${suit}.webp`;
-}
-
-const PIP_LAYOUTS: Record<string, [number, number][]> = {
-  '2': [[0.5, 0.20], [0.5, 0.80]],
-  '3': [[0.5, 0.20], [0.5, 0.50], [0.5, 0.80]],
-  '4': [[0.32, 0.20], [0.68, 0.20], [0.32, 0.80], [0.68, 0.80]],
-  '5': [[0.32, 0.20], [0.68, 0.20], [0.5, 0.50], [0.32, 0.80], [0.68, 0.80]],
-  '6': [[0.32, 0.20], [0.68, 0.20], [0.32, 0.50], [0.68, 0.50], [0.32, 0.80], [0.68, 0.80]],
-  '7': [[0.32, 0.20], [0.68, 0.20], [0.5, 0.35], [0.32, 0.50], [0.68, 0.50], [0.32, 0.80], [0.68, 0.80]],
-  '8': [[0.32, 0.20], [0.68, 0.20], [0.32, 0.40], [0.68, 0.40], [0.32, 0.60], [0.68, 0.60], [0.32, 0.80], [0.68, 0.80]],
-  '9': [[0.32, 0.20], [0.68, 0.20], [0.32, 0.38], [0.68, 0.38], [0.5, 0.50], [0.32, 0.62], [0.68, 0.62], [0.32, 0.80], [0.68, 0.80]],
-  'T': [[0.32, 0.18], [0.68, 0.18], [0.5, 0.32], [0.32, 0.42], [0.68, 0.42], [0.32, 0.58], [0.68, 0.58], [0.5, 0.68], [0.32, 0.82], [0.68, 0.82]],
-};
-
 const VB_W = 50;
 const VB_H = 70;
-const PIP_SIZE = 9;
-const ACE_SIZE = 28;
-const CORNER_FONT = 8;
-const CORNER_SUIT_FONT = 6.5;
 
 function CardFaceSVG({ card }: { card: Card }) {
   const color = isRedSuit(card.suit) ? '#c41e3a' : '#1a1a1a';
   const glyph = SUIT_SYMBOLS[card.suit];
   const rankStr = RANK_DISPLAY[card.rank];
-  const face = isFaceCard(card.rank);
-  const isAce = card.rank === 'A';
+  const _ = card.rank as Rank;
 
   return (
     <svg
@@ -64,78 +39,41 @@ function CardFaceSVG({ card }: { card: Card }) {
       preserveAspectRatio="xMidYMid meet"
     >
       <rect x={0.75} y={0.75} width={VB_W - 1.5} height={VB_H - 1.5} rx={4} ry={4} fill="#fefefe" stroke="#d1d5db" strokeWidth={0.8} />
-      <rect x={1.5} y={1.5} width={VB_W - 3} height={VB_H - 3} rx={3} ry={3} fill="none" stroke="#e5e7eb" strokeWidth={0.4} />
 
-      <text x={4} y={11} fontSize={CORNER_FONT} fontWeight={700} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{rankStr}</text>
-      <text x={4} y={18} fontSize={CORNER_SUIT_FONT} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{glyph}</text>
+      {/* Corner indices */}
+      <text x={4} y={13} fontSize={9} fontWeight={800} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{rankStr}</text>
+      <text x={4} y={21} fontSize={8} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{glyph}</text>
 
       <g transform={`rotate(180 ${VB_W / 2} ${VB_H / 2})`}>
-        <text x={4} y={11} fontSize={CORNER_FONT} fontWeight={700} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{rankStr}</text>
-        <text x={4} y={18} fontSize={CORNER_SUIT_FONT} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{glyph}</text>
+        <text x={4} y={13} fontSize={9} fontWeight={800} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{rankStr}</text>
+        <text x={4} y={21} fontSize={8} fill={color} textAnchor="start" fontFamily="ui-sans-serif, system-ui, sans-serif">{glyph}</text>
       </g>
 
-      {face ? (
-        <FaceCardImage card={card} color={color} />
-      ) : isAce ? (
-        <text x={VB_W / 2} y={VB_H / 2 + ACE_SIZE * 0.35} fontSize={ACE_SIZE} fill={color} textAnchor="middle" fontFamily="ui-sans-serif, system-ui, sans-serif">{glyph}</text>
-      ) : (
-        <NumberCardPips card={card} color={color} glyph={glyph} />
-      )}
-    </svg>
-  );
-}
-
-function NumberCardPips({ card, color, glyph }: { card: Card; color: string; glyph: string }) {
-  const pips = PIP_LAYOUTS[card.rank] || [];
-  return (
-    <>
-      {pips.map(([xFrac, yFrac], i) => {
-        const x = xFrac * VB_W;
-        const y = yFrac * VB_H;
-        const inverted = yFrac > 0.5 && card.rank !== 'A';
-        return (
-          <text
-            key={i}
-            x={x}
-            y={y + PIP_SIZE * 0.35}
-            fontSize={PIP_SIZE}
-            fill={color}
-            textAnchor="middle"
-            fontFamily="ui-sans-serif, system-ui, sans-serif"
-            transform={inverted ? `rotate(180 ${x} ${y})` : undefined}
-          >
-            {glyph}
-          </text>
-        );
-      })}
-    </>
-  );
-}
-
-function FaceCardImage({ card, color }: { card: Card; color: string }) {
-  const glyph = SUIT_SYMBOLS[card.suit];
-  const rankStr = RANK_DISPLAY[card.rank];
-  const imgHref = faceCardPath(card.rank, card.suit);
-  const px = 6;
-  const py = 11;
-  const pw = VB_W - 12;
-  const ph = VB_H - 22;
-
-  return (
-    <>
-      <rect x={px - 0.5} y={py - 0.5} width={pw + 1} height={ph + 1} rx={2} ry={2} fill="none" stroke={color} strokeWidth={0.6} opacity={0.3} />
-      <image
-        href={imgHref}
-        x={px}
-        y={py}
-        width={pw}
-        height={ph}
-        preserveAspectRatio="xMidYMid meet"
-      />
-      <text x={VB_W / 2} y={VB_H - 4} fontSize={5.5} fill={color} textAnchor="middle" opacity={0.6} fontFamily="ui-sans-serif, system-ui, sans-serif">
-        {rankStr}{glyph}
+      {/* Large central rank */}
+      <text
+        x={VB_W / 2}
+        y={VB_H * 0.45}
+        fontSize={26}
+        fontWeight={800}
+        fill={color}
+        textAnchor="middle"
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+      >
+        {rankStr}
       </text>
-    </>
+
+      {/* Large central suit */}
+      <text
+        x={VB_W / 2}
+        y={VB_H * 0.75}
+        fontSize={22}
+        fill={color}
+        textAnchor="middle"
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+      >
+        {glyph}
+      </text>
+    </svg>
   );
 }
 
@@ -222,10 +160,10 @@ export function HandDisplay({
   const cardW = cardWidth ?? CARD_WIDTH[size];
 
   if (!compact) {
-    // Player's own hand: horizontal fan with generous visible area per card
-    const overlap = cardW * 0.38;
+    // Player's own hand: horizontal fan — minimal overlap since just the corner index needs to show
+    const overlap = cardW * 0.55;
     const cardAdvance = cardW - overlap;
-    const suitGap = cardW * 0.2;
+    const suitGap = cardW * 0.12;
     const nonEmptySuits = suits.filter((s) => bySuit[s].length > 0);
     const totalWidth = hand.length > 0
       ? cardW + (hand.length - 1) * cardAdvance + Math.max(0, nonEmptySuits.length - 1) * suitGap
@@ -261,7 +199,7 @@ export function HandDisplay({
     );
   }
 
-  // Compact mode: BBO-style vertical suit columns with real card faces
+  // Compact mode: vertical suit columns — minimal vertical overlap since only the corner index matters
   return (
     <div className={`flex flex-col gap-0.5 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-1.5' : ''}`}>
       {label && (
@@ -280,8 +218,6 @@ export function HandDisplay({
   );
 }
 
-// Shared component: renders cards as vertical columns grouped by suit,
-// with each card overlapping vertically so the rank+suit corner is visible.
 function SuitColumnHand({
   suits,
   bySuit,
@@ -296,9 +232,9 @@ function SuitColumnHand({
   legalCards?: Set<string>;
 }) {
   const cardH = cardW * 1.4;
-  const vOverlap = cardH * 0.72;
+  const vOverlap = cardH * 0.58;
   const vAdvance = cardH - vOverlap;
-  const suitGap = cardW * 0.12;
+  const suitGap = cardW * 0.1;
   const nonEmptySuits = suits.filter((s) => bySuit[s].length > 0);
   const maxColCards = Math.max(1, ...nonEmptySuits.map((s) => bySuit[s].length));
   const totalWidth = nonEmptySuits.length * cardW + Math.max(0, nonEmptySuits.length - 1) * suitGap;

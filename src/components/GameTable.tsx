@@ -52,18 +52,18 @@ function rotationFor(mySeat: Seat): Record<Seat, ViewSide> {
 function handWidthFactor(hand: Card[]): number {
   if (hand.length === 0) return 1;
   const suits = new Set(hand.map(c => c.suit));
-  return 1 + (hand.length - 1) * 0.62 + Math.max(0, suits.size - 1) * 0.2;
+  return 1 + (hand.length - 1) * 0.45 + Math.max(0, suits.size - 1) * 0.12;
 }
 
 function suitColumnFactors(hand: Card[]) {
-  if (hand.length === 0) return { widthFactor: 1.12, heightFactor: 1.4 };
+  if (hand.length === 0) return { widthFactor: 1.1, heightFactor: 1.4 };
   const bySuit: Record<string, Card[]> = {};
   for (const c of hand) (bySuit[c.suit] ??= []).push(c);
   const cols = Object.values(bySuit).filter(a => a.length > 0);
   const numCols = cols.length || 1;
   const maxColCards = Math.max(1, ...cols.map(a => a.length));
-  const widthFactor = numCols * 1.12 - 0.12;
-  const heightFactor = 1.4 * (1 + (maxColCards - 1) * 0.28);
+  const widthFactor = numCols * 1.1 - 0.1;
+  const heightFactor = 1.4 * (1 + (maxColCards - 1) * 0.42);
   return { widthFactor, heightFactor };
 }
 
@@ -265,10 +265,10 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   const ZONE_PAD = 8;
 
   const myHandCards = getHand(mySeat);
-  const myCardW = Math.max(32, Math.min(
+  const myCardW = Math.max(36, Math.min(
     (w - 40) / handWidthFactor(myHandCards),
     (edgeH - ZONE_PAD) / 1.4,
-    160,
+    200,
   ));
 
   const sideVideoW = Math.min(130, edgeW * 0.55, centerH * 0.2);
@@ -286,21 +286,21 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
       const vH = tbVideoH;
       const zoneW = w - 40;
       const zoneH = edgeH - vH - VIDEO_GAP - ZONE_PAD;
-      dummyCardW = computeSuitColumnCardW(zoneW, Math.max(30, zoneH), dummyHandCards, 100);
+      dummyCardW = computeSuitColumnCardW(zoneW, Math.max(30, zoneH), dummyHandCards, 140);
     } else {
       const vH = sideVideoH;
       const zoneW = edgeW - ZONE_PAD;
       const zoneH = centerH - vH - VIDEO_GAP - ZONE_PAD;
-      dummyCardW = computeSuitColumnCardW(Math.max(30, zoneW), Math.max(30, zoneH), dummyHandCards, 80);
+      dummyCardW = computeSuitColumnCardW(Math.max(30, zoneW), Math.max(30, zoneH), dummyHandCards, 100);
     }
   }
 
   const otherHandCards = SEATS.filter(s => s !== mySeat && s !== dummy).map(s => getHand(s)).find(h => h.length > 0) || [];
-  const otherCardW = Math.max(28, Math.min(
-    computeSuitColumnCardW(edgeW - ZONE_PAD, edgeH - tbVideoH - VIDEO_GAP - ZONE_PAD, otherHandCards, 64),
-    64,
+  const otherCardW = Math.max(32, Math.min(
+    computeSuitColumnCardW(edgeW - ZONE_PAD, edgeH - tbVideoH - VIDEO_GAP - ZONE_PAD, otherHandCards, 88),
+    88,
   ));
-  const playedCardW = Math.max(40, Math.min(centerW * 0.22, centerH * 0.22, 100));
+  const playedCardW = Math.max(48, Math.min(centerW * 0.26, centerH * 0.26, 120));
   const trickAreaSize = Math.min(centerW * 0.8, centerH * 0.8, 300);
 
   const seatBySide: Record<ViewSide, Seat | null> = { top: null, bottom: null, left: null, right: null };
