@@ -14,6 +14,7 @@ type View =
   | { type: 'table-setup'; tableId: string }
   | { type: 'game'; tableId: string; gameId: string }
   | { type: 'history' }
+  | { type: 'table-history'; tableId: string; gameId?: string; returnToGame?: boolean }
   | { type: 'admin' };
 
 function AppContent() {
@@ -68,6 +69,7 @@ function AppContent() {
         <GameTable
           tableId={view.tableId}
           onLeave={() => setView({ type: 'lobby' })}
+          onShowHistory={() => setView({ type: 'table-history', tableId: view.tableId, gameId: view.gameId, returnToGame: true })}
         />
       </GameProvider>
     );
@@ -75,6 +77,19 @@ function AppContent() {
 
   if (view.type === 'history') {
     return <History onBack={() => setView({ type: 'lobby' })} />;
+  }
+
+  if (view.type === 'table-history') {
+    const backTarget = view.returnToGame
+      ? () => setView({ type: 'game', tableId: view.tableId, gameId: view.gameId! })
+      : () => setView({ type: 'lobby' });
+    return (
+      <History
+        onBack={backTarget}
+        tableId={view.tableId}
+        gameId={view.gameId}
+      />
+    );
   }
 
   if (view.type === 'admin') {

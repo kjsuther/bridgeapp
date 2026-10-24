@@ -4,11 +4,15 @@ import { useAuth } from '@/context/AuthContext';
 import { jsonToDeal, sortHand } from '@/lib/dealing';
 import type { Deal, Contract, AuctionEntry, PlayState, Seat, Vulnerability, Card, TrickCard, HandScore } from '@/types/bridge';
 import { SEATS, SUIT_SYMBOLS } from '@/types/bridge';
-import { ArrowLeft, Scale, ChevronRight, ChevronLeft, Layers } from 'lucide-react';
+import { ArrowLeft, Scale, ChevronRight, ChevronLeft, Layers, Compass } from 'lucide-react';
 import { CardDisplay, HandDisplay } from '@/components/CardDisplay';
 
 interface HistoryProps {
   onBack: () => void;
+  /** When provided, show only boards for this table. When omitted, show a table picker. */
+  tableId?: string;
+  /** When provided alongside tableId, show only boards for this specific game. */
+  gameId?: string;
 }
 
 interface CompletedBoard {
@@ -27,6 +31,14 @@ interface CompletedBoard {
   createdAt: string;
 }
 
+interface TableSummary {
+  tableId: string;
+  tableName: string;
+  boardCount: number;
+  totalImpsA: number;
+  totalImpsB: number;
+}
+
 interface HandDetail {
   handId: string;
   deal: Deal;
@@ -40,15 +52,61 @@ interface HandDetail {
 
 type SeatNames = Record<Seat, string>;
 
-export function History({ onBack }: HistoryProps) {
+export function History({ onBack, tableId, gameId }: HistoryProps) {
   const { profile } = useAuth();
-  const [boards, setBoards] = useState<CompletedBoard[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedBoard, setSelectedBoard] = useState<CompletedBoard | null>(null);
+  const [selectedTable, setSelectedTable] = useState<string | null>(tableId ?? null);
+
+  if (selectedBoard) {
+    return (
+      <BoardComparison
+        board={selectedBoard}
+        onBack={() => setSelectedBoard(null)}
+      />
+    );
+  }
+
+  if (selectedTable) {
+    return (
+      <TableHistory
+        tableId={selectedTable}
+        gameId={gameId}
+        onBack={() => {
+          if (tableId) {
+            onBack();
+          } else {
+            setSelectedTable(null);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <TablePicker
+      profileId={profile?.id ?? ''}
+      onSelectTable={(tid) => setSelectedTable(tid)}
+      onBack={onBack}
+    />
+  );
+}
+
+/** Lobby entry point: shows a list of tables with completed boards. */
+function TablePicker({
+  profileId,
+  onSelectTable,
+  onBack,
+}: {
+  profileId: string;
+  onSelectTable: (tableId: string) => void;
+  onBack: () => void;
+}) {
+  const [tables, setTables] = useState<TableSummary[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
-      if (!profile?.id) {
+      if (!profileId) {
         setLoading(false);
         return;
       }
@@ -56,7 +114,7 @@ export function History({ onBack }: HistoryProps) {
       const { data: myTables } = await supabase
         .from('table_players')
         .select('table_id')
-        .eq('user_id', profile.id);
+        .eq('user_id', profileId);
 
       if (!myTables || myTables.length === 0) {
         setLoading(false);
@@ -84,15 +142,168 @@ export function History({ onBack }: HistoryProps) {
         return;
       }
 
-      const gameIds = games.map((g) => g.id);
-      const gameTableMap: Record<string, { tableId: string; tableName: string; createdAt: string }> = {};
+      const gameIdToTable: Record<string, { tableId: string; tableName: string; createdAt: string }> = {};
       for (const g of games) {
-        gameTableMap[g.id] = {
+        gameIdToTable[g.id] = {
           tableId: g.table_id,
           tableName: tableNameMap[g.table_id] ?? 'Unknown Table',
           createdAt: g.created_at,
         };
       }
+
+      const gameIds = games.map((g) => g.id);
+
+      const { data: hands } = await supabase
+        .from('hands')
+        .select('id, game_id, hand_number, hand_role, original_hand_id, contract, score, imp_result, phase')
+        .in('game_id', gameIds)
+        .order('hand_number', { ascending: true });
+
+      if (!hands) {
+        setLoading(false);
+        return;
+      }
+
+      const byTable: Record<string, TableSummary> = {};
+      for (const hand of hands) {
+        if (hand.hand_role !== 'replay' || !hand.original_hand_id || !hand.contract || !hand.score) continue;
+        if (hand.phase !== 'scoring' && hand.phase !== 'finished') continue;
+
+        const origHand = hands.find((h) => h.id === hand.original_hand_id);
+        if (!origHand || !origHand.contract || !origHand.score) continue;
+        if (origHand.phase !== 'scoring' && origHand.phase !== 'finished') continue;
+
+        const gameInfo = gameIdToTable[hand.game_id];
+        if (!gameInfo) continue;
+
+        const impResult = hand.imp_result as { imps: number; netPoints: number } | null;
+        const imps = impResult?.imps ?? 0;
+
+        if (!byTable[gameInfo.tableId]) {
+          byTable[gameInfo.tableId] = {
+            tableId: gameInfo.tableId,
+            tableName: gameInfo.tableName,
+            boardCount: 0,
+            totalImpsA: 0,
+            totalImpsB: 0,
+          };
+        }
+        byTable[gameInfo.tableId].boardCount += 1;
+        byTable[gameInfo.tableId].totalImpsA += imps;
+        byTable[gameInfo.tableId].totalImpsB -= imps;
+      }
+
+      const tableList = Object.values(byTable).sort((a, b) => b.boardCount - a.boardCount);
+      setTables(tableList);
+      setLoading(false);
+    })();
+  }, [profileId]);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900">
+      <div className="max-w-3xl mx-auto p-6">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-6"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Lobby
+        </button>
+
+        <div className="flex items-center gap-3 mb-6">
+          <Layers className="w-6 h-6 text-emerald-400" />
+          <h1 className="text-2xl font-bold text-white">Match History</h1>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-12">
+            <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          </div>
+        ) : tables.length === 0 ? (
+          <div className="bg-slate-800/40 rounded-xl border border-slate-700/30 p-12 text-center">
+            <p className="text-slate-400">No completed boards yet. Boards appear here after they've been played twice (original + replay).</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {tables.map((t) => (
+              <button
+                key={t.tableId}
+                onClick={() => onSelectTable(t.tableId)}
+                className="w-full text-left bg-slate-800/60 backdrop-blur rounded-xl border border-slate-700/50 p-5 hover:border-emerald-600/50 hover:bg-slate-800/80 transition-all group"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Compass className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <h3 className="text-white font-medium">{t.tableName}</h3>
+                      <span className="text-xs text-slate-400">{t.boardCount} board{t.boardCount !== 1 ? 's' : ''} completed</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <div className="text-sm">
+                        <span className="text-emerald-300">A: <span className="font-bold">{t.totalImpsA > 0 ? '+' : ''}{t.totalImpsA}</span></span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-blue-300">B: <span className="font-bold">{t.totalImpsB > 0 ? '+' : ''}{t.totalImpsB}</span></span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 transition-colors" />
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Shows completed boards for a single table. */
+function TableHistory({
+  tableId,
+  gameId,
+  onBack,
+}: {
+  tableId: string;
+  gameId?: string;
+  onBack: () => void;
+}) {
+  const { profile } = useAuth();
+  const [boards, setBoards] = useState<CompletedBoard[]>([]);
+  const [tableName, setTableName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [selectedBoard, setSelectedBoard] = useState<CompletedBoard | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data: tableData } = await supabase
+        .from('tables')
+        .select('name')
+        .eq('id', tableId)
+        .maybeSingle();
+
+      setTableName(tableData?.name ?? 'Table');
+
+      let gameQuery = supabase
+        .from('games')
+        .select('id, table_id, created_at')
+        .eq('table_id', tableId)
+        .order('created_at', { ascending: false });
+
+      if (gameId) {
+        gameQuery = gameQuery.eq('id', gameId);
+      }
+
+      const { data: games } = await gameQuery;
+
+      if (!games || games.length === 0) {
+        setLoading(false);
+        return;
+      }
+
+      const gameIds = games.map((g) => g.id);
 
       const { data: hands } = await supabase
         .from('hands')
@@ -115,7 +326,7 @@ export function History({ onBack }: HistoryProps) {
         if (!origHand || !origHand.contract || !origHand.score) continue;
         if (origHand.phase !== 'scoring' && origHand.phase !== 'finished') continue;
 
-        const gameInfo = gameTableMap[hand.game_id];
+        const gameInfo = games.find((g) => g.id === hand.game_id);
         if (!gameInfo) continue;
 
         const impResult = hand.imp_result as { imps: number; netPoints: number } | null;
@@ -131,9 +342,9 @@ export function History({ onBack }: HistoryProps) {
           replayScore: hand.score as HandScore,
           imps: impResult?.imps ?? 0,
           netPoints: impResult?.netPoints ?? 0,
-          tableName: gameInfo.tableName,
-          tableId: gameInfo.tableId,
-          createdAt: gameInfo.createdAt,
+          tableName,
+          tableId,
+          createdAt: gameInfo.created_at,
         });
       }
 
@@ -141,7 +352,7 @@ export function History({ onBack }: HistoryProps) {
       setBoards(completedBoards);
       setLoading(false);
     })();
-  }, [profile]);
+  }, [tableId, gameId, tableName]);
 
   if (selectedBoard) {
     return (
@@ -163,12 +374,15 @@ export function History({ onBack }: HistoryProps) {
           className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to Lobby
+          Back
         </button>
 
         <div className="flex items-center gap-3 mb-6">
-          <Layers className="w-6 h-6 text-emerald-400" />
-          <h1 className="text-2xl font-bold text-white">Match History</h1>
+          <Compass className="w-6 h-6 text-emerald-400" />
+          <div>
+            <h1 className="text-2xl font-bold text-white">{tableName}</h1>
+            <p className="text-sm text-slate-400">Match History</p>
+          </div>
         </div>
 
         {loading ? (
@@ -177,7 +391,7 @@ export function History({ onBack }: HistoryProps) {
           </div>
         ) : boards.length === 0 ? (
           <div className="bg-slate-800/40 rounded-xl border border-slate-700/30 p-12 text-center">
-            <p className="text-slate-400">No completed boards yet. Boards appear here after they've been played twice (original + replay).</p>
+            <p className="text-slate-400">No completed boards yet for this table. Boards appear here after they've been played twice (original + replay).</p>
           </div>
         ) : (
           <>
@@ -203,7 +417,6 @@ export function History({ onBack }: HistoryProps) {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h3 className="text-white font-medium">Board {board.boardNumber}</h3>
-                      <span className="text-xs text-slate-400">{board.tableName}</span>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className={`text-lg font-bold ${board.imps > 0 ? 'text-emerald-400' : board.imps < 0 ? 'text-blue-400' : 'text-slate-400'}`}>
@@ -398,7 +611,6 @@ function HandPanel({
   const tricks = detail.playState.completedTricks;
   const allCards = useMemo(() => flattenPlayedCards(tricks), [tricks]);
 
-  // The cards that have been played up to and including the current card index
   const playedUpTo = useMemo(() => {
     const played: Record<Seat, Card[]> = { N: [], E: [], S: [], W: [] };
     for (let i = 0; i <= cardIndex && i < allCards.length; i++) {
@@ -408,15 +620,12 @@ function HandPanel({
     return played;
   }, [allCards, cardIndex]);
 
-  // Which trick are we currently in, and how many cards of it have been played?
   const currentTrickNumber = Math.floor(cardIndex / 4);
   const cardInTrick = cardIndex % 4;
 
-  // Build the current trick display: show cards played so far in the current trick
   const currentTrickCards = useMemo(() => {
     if (currentTrickNumber >= tricks.length) return [];
     const fullTrick = tricks[currentTrickNumber];
-    // Show only up to cardInTrick + 1 cards of this trick
     return fullTrick.slice(0, cardInTrick + 1);
   }, [tricks, currentTrickNumber, cardInTrick]);
 
@@ -448,14 +657,11 @@ function HandPanel({
         </div>
       </div>
 
-      {/* Four hands layout */}
       <div className="p-4">
         <div className="grid grid-areas-4h grid-cols-1 gap-2">
-          {/* North */}
           <div className="flex justify-center">
             <HandDisplay hand={getRemainingHand('N')} seat="N" label={seatLabel('N')} cardWidth={36} trumpStrain={trumpStrain} />
           </div>
-          {/* West + trick + East */}
           <div className="flex items-center justify-between gap-2">
             <HandDisplay hand={getRemainingHand('W')} seat="W" label={seatLabel('W')} cardWidth={36} trumpStrain={trumpStrain} />
             <div className="flex-shrink-0">
@@ -469,13 +675,11 @@ function HandPanel({
             </div>
             <HandDisplay hand={getRemainingHand('E')} seat="E" label={seatLabel('E')} cardWidth={36} trumpStrain={trumpStrain} />
           </div>
-          {/* South */}
           <div className="flex justify-center">
             <HandDisplay hand={getRemainingHand('S')} seat="S" label={seatLabel('S')} cardWidth={36} trumpStrain={trumpStrain} />
           </div>
         </div>
 
-        {/* Auction summary */}
         <div className="mt-3 pt-3 border-t border-slate-700/30">
           <div className="text-xs text-slate-500 mb-1">Auction</div>
           <div className="flex flex-wrap gap-1">

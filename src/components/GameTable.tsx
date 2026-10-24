@@ -16,7 +16,7 @@ import { DEFAULT_AVATAR_STYLE, isAvatarStyle, type AvatarStyle } from '@/lib/ava
 import { ProfileSettings } from '@/components/ProfileSettings';
 import { supabase } from '@/lib/supabase';
 import {
-  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap, Settings,
+  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap, Settings, History as HistoryIcon,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -24,6 +24,7 @@ import { createPortal } from 'react-dom';
 interface GameTableProps {
   tableId: string;
   onLeave: () => void;
+  onShowHistory: () => void;
 }
 
 type ViewSide = 'bottom' | 'left' | 'top' | 'right';
@@ -99,7 +100,7 @@ const TRICK_POSITION_CLASSES: Record<ViewSide, string> = {
   right: 'right-0 top-1/2 -translate-y-1/2',
 };
 
-export function GameTable({ tableId, onLeave }: GameTableProps) {
+export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
   const { profile } = useAuth();
   const game = useGame();
   const {
@@ -460,6 +461,13 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={onShowHistory}
+            className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-600"
+          >
+            <HistoryIcon className="h-4 w-4" />
+            History
+          </button>
           <button
             onClick={() => setProfileOpen(true)}
             className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-600"
