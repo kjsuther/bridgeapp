@@ -18,6 +18,7 @@ import {
   Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap, Settings,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 interface GameTableProps {
   tableId: string;
@@ -458,18 +459,22 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
               <Settings className="h-4 w-4" />
               Table Settings
             </button>
-            {animToggleOpen && (
+            {animToggleOpen && createPortal(
               <div
-                className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
                 onClick={() => setAnimToggleOpen(false)}
+                role="presentation"
               >
                 <div
-                  className="w-80 rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
+                  className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
                   onClick={(e) => e.stopPropagation()}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="table-settings-title"
                 >
                   <div className="mb-4 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-white">Table Settings</span>
-                    <button onClick={() => setAnimToggleOpen(false)} className="text-slate-400 hover:text-white">
+                    <span id="table-settings-title" className="text-sm font-semibold text-white">Table Settings</span>
+                    <button onClick={() => setAnimToggleOpen(false)} className="text-slate-400 hover:text-white" aria-label="Close table settings">
                       <X className="h-4 w-4" />
                     </button>
                   </div>
@@ -513,7 +518,8 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                     </div>
                   )}
                 </div>
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
           {phase === 'playing' && playState && !playState.undoRequest && hasCardsPlayed && canRequestUndo && (
