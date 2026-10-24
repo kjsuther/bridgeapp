@@ -478,16 +478,18 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                       <X className="h-4 w-4" />
                     </button>
                   </div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Your display</p>
                   <label className="flex items-center justify-between text-sm text-slate-300 py-2 cursor-pointer">
                     Animated card play
                     <input type="checkbox" checked={animationsEnabled} onChange={(event) => setAnimationsEnabled(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
                   </label>
-                  <label className={`flex items-center justify-between text-sm py-2 cursor-pointer ${!animationsEnabled ? 'opacity-40' : ''}`}>
+                  <label className={`flex items-center justify-between text-sm text-slate-300 py-2 cursor-pointer ${!animationsEnabled ? 'opacity-40' : ''}`}>
                     Fast play
                     <input type="checkbox" checked={fastAnimations} disabled={!animationsEnabled} onChange={(event) => setFastAnimations(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
                   </label>
                   {isHost && (
                     <div className="mt-3 border-t border-slate-700/50 pt-3">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Table host only</p>
                       <label className="flex items-center justify-between text-sm text-slate-300 py-2">
                         <span className="whitespace-nowrap">New hands before replay</span>
                         <select
