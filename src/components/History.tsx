@@ -3,9 +3,9 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { jsonToDeal, sortHand } from '@/lib/dealing';
 import type { Deal, Contract, AuctionEntry, PlayState, Seat, Vulnerability, Card, TrickCard, HandScore } from '@/types/bridge';
-import { SEATS, SUIT_SYMBOLS, isVulnerable, RANK_DISPLAY } from '@/types/bridge';
+import { SEATS, SUIT_SYMBOLS } from '@/types/bridge';
 import { ArrowLeft, Scale, ChevronRight, ChevronLeft, Layers } from 'lucide-react';
-import { CardDisplay } from '@/components/CardDisplay';
+import { CardDisplay, HandDisplay } from '@/components/CardDisplay';
 
 interface HistoryProps {
   onBack: () => void;
@@ -404,25 +404,25 @@ function HandPanel({
         <div className="grid grid-areas-4h grid-cols-1 gap-2">
           {/* North */}
           <div className="flex justify-center">
-            <CompactHand label="N" hand={getRemainingHand('N')} trumpStrain={trumpStrain} vulnerable={isVulnerable('N', detail.vulnerability)} />
+            <HandDisplay hand={getRemainingHand('N')} seat="N" label="N" cardWidth={36} trumpStrain={trumpStrain} />
           </div>
           {/* West + trick + East */}
           <div className="flex items-center justify-between gap-2">
-            <CompactHand label="W" hand={getRemainingHand('W')} trumpStrain={trumpStrain} vulnerable={isVulnerable('W', detail.vulnerability)} />
+            <HandDisplay hand={getRemainingHand('W')} seat="W" label="W" cardWidth={36} trumpStrain={trumpStrain} />
             <div className="flex-shrink-0">
               {currentTrick.length > 0 ? (
                 <TrickDisplay trick={currentTrick} />
               ) : (
-                <div className="w-20 h-20 flex items-center justify-center text-xs text-slate-600">
+                <div className="w-24 h-24 flex items-center justify-center text-xs text-slate-600">
                   {trickIndex >= tricks.length ? 'Complete' : '—'}
                 </div>
               )}
             </div>
-            <CompactHand label="E" hand={getRemainingHand('E')} trumpStrain={trumpStrain} vulnerable={isVulnerable('E', detail.vulnerability)} />
+            <HandDisplay hand={getRemainingHand('E')} seat="E" label="E" cardWidth={36} trumpStrain={trumpStrain} />
           </div>
           {/* South */}
           <div className="flex justify-center">
-            <CompactHand label="S" hand={getRemainingHand('S')} trumpStrain={trumpStrain} vulnerable={isVulnerable('S', detail.vulnerability)} />
+            <HandDisplay hand={getRemainingHand('S')} seat="S" label="S" cardWidth={36} trumpStrain={trumpStrain} />
           </div>
         </div>
 
@@ -460,9 +460,7 @@ function TrickDisplay({ trick }: { trick: TrickCard[] }) {
             className={`flex items-center justify-center ${seatPosClass(seat)}`}
           >
             {tc && (
-              <div className="transform scale-75">
-                <CardDisplay card={tc.card} cardWidth={36} />
-              </div>
+              <CardDisplay card={tc.card} cardWidth={44} />
             )}
             {!tc && <span className="text-[9px] text-slate-700">{seat}</span>}
           </div>
@@ -479,40 +477,6 @@ function seatPosClass(seat: Seat): string {
     case 'S': return 'col-start-2 row-start-3';
     case 'W': return 'col-start-1 row-start-2';
   }
-}
-
-function CompactHand({
-  label, hand, trumpStrain, vulnerable,
-}: {
-  label: string;
-  hand: Card[];
-  trumpStrain: string;
-  vulnerable: boolean;
-}) {
-  const bySuit: Record<string, Card[]> = { S: [], H: [], D: [], C: [] };
-  for (const c of hand) bySuit[c.suit].push(c);
-  const suits = ['S', 'H', 'D', 'C'] as const;
-
-  return (
-    <div className="flex flex-col items-center gap-0.5">
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs font-bold text-slate-200">{label}</span>
-        {vulnerable && <span className="text-[9px] font-semibold text-red-400">V</span>}
-      </div>
-      <div className="rounded-md bg-slate-950/45 border border-slate-700/50 px-2 py-1.5">
-        {suits.map(s => (
-          <div key={s} className="flex items-center min-h-5 text-xs leading-none">
-            <span className={`w-5 font-bold ${s === 'H' || s === 'D' ? 'text-red-400' : 'text-slate-200'}`}>
-              {SUIT_SYMBOLS[s]}
-            </span>
-            <span className="font-semibold tracking-wide text-slate-200">
-              {bySuit[s].map(c => RANK_DISPLAY[c.rank]).join(' ')}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 async function loadHandDetail(handId: string): Promise<HandDetail | null> {
