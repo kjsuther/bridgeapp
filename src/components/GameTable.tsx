@@ -15,7 +15,7 @@ import { DEFAULT_AVATAR_STYLE, isAvatarStyle, type AvatarStyle } from '@/lib/ava
 import { ProfileSettings } from '@/components/ProfileSettings';
 import { supabase } from '@/lib/supabase';
 import {
-  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap,
+  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap, Settings,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
@@ -451,58 +451,68 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           <div className="relative">
             <button
               onClick={() => setAnimToggleOpen((open) => !open)}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white transition-colors ${fastAnimations ? 'bg-amber-600 hover:bg-amber-500' : animationsEnabled ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-700/50 hover:bg-slate-600'}`}
+              className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-600"
               aria-expanded={animToggleOpen}
-              title="Card play animation settings"
+              title="Table settings"
             >
-              <Zap className="h-4 w-4" />
-              {fastAnimations ? 'Fast' : animationsEnabled ? 'On' : 'Off'}
+              <Settings className="h-4 w-4" />
+              Table Settings
             </button>
             {animToggleOpen && (
-              <div className="absolute right-0 top-10 z-40 w-56 rounded-xl border border-slate-700 bg-slate-900/95 p-3 shadow-2xl backdrop-blur">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-white">Animation</span>
-                  <button onClick={() => setAnimToggleOpen(false)} className="text-xs text-slate-400 hover:text-white">Close</button>
-                </div>
-                <label className="flex items-center justify-between text-xs text-slate-300 py-1.5 cursor-pointer">
-                  Animated card play
-                  <input type="checkbox" checked={animationsEnabled} onChange={(event) => setAnimationsEnabled(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
-                </label>
-                <label className={`flex items-center justify-between text-xs py-1.5 cursor-pointer ${!animationsEnabled ? 'opacity-40' : ''}`}>
-                  Fast play
-                  <input type="checkbox" checked={fastAnimations} disabled={!animationsEnabled} onChange={(event) => setFastAnimations(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
-                </label>
-                {isHost && (
-                  <div className="mt-3 border-t border-slate-700/50 pt-3">
-                    <label className="flex items-center justify-between text-xs text-slate-300 py-1.5">
-                      <span className="whitespace-nowrap">New hands before replay</span>
-                      <select
-                        value={replaySetting}
-                        disabled={replaysStarted}
-                        onChange={(e) => {
-                          if (replaysStarted) return;
-                          const v = parseInt(e.target.value, 10);
-                          if (!isNaN(v)) {
-                            setReplaySetting(v);
-                            supabase
-                              .from('tables')
-                              .update({ new_hands_before_replay: v })
-                              .eq('id', tableId)
-                              .then();
-                          }
-                        }}
-                        className="w-16 px-1.5 py-1 bg-slate-800 border border-slate-600 rounded text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        {[4, 8, 12, 16, 20, 24, 28, 32].map((n) => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
-                    </label>
-                    {replaysStarted && (
-                      <p className="text-[10px] text-slate-500 mt-1">Locked — replays have already started.</p>
-                    )}
+              <div
+                className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                onClick={() => setAnimToggleOpen(false)}
+              >
+                <div
+                  className="w-80 rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mb-4 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-white">Table Settings</span>
+                    <button onClick={() => setAnimToggleOpen(false)} className="text-slate-400 hover:text-white">
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
-                )}
+                  <label className="flex items-center justify-between text-sm text-slate-300 py-2 cursor-pointer">
+                    Animated card play
+                    <input type="checkbox" checked={animationsEnabled} onChange={(event) => setAnimationsEnabled(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
+                  </label>
+                  <label className={`flex items-center justify-between text-sm py-2 cursor-pointer ${!animationsEnabled ? 'opacity-40' : ''}`}>
+                    Fast play
+                    <input type="checkbox" checked={fastAnimations} disabled={!animationsEnabled} onChange={(event) => setFastAnimations(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
+                  </label>
+                  {isHost && (
+                    <div className="mt-3 border-t border-slate-700/50 pt-3">
+                      <label className="flex items-center justify-between text-sm text-slate-300 py-2">
+                        <span className="whitespace-nowrap">New hands before replay</span>
+                        <select
+                          value={replaySetting}
+                          disabled={replaysStarted}
+                          onChange={(e) => {
+                            if (replaysStarted) return;
+                            const v = parseInt(e.target.value, 10);
+                            if (!isNaN(v)) {
+                              setReplaySetting(v);
+                              supabase
+                                .from('tables')
+                                .update({ new_hands_before_replay: v })
+                                .eq('id', tableId)
+                                .then();
+                            }
+                          }}
+                          className="w-16 px-1.5 py-1 bg-slate-800 border border-slate-600 rounded text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {[4, 8, 12, 16, 20, 24, 28, 32].map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {replaysStarted && (
+                        <p className="text-[10px] text-slate-500 mt-1">Locked — replays have already started.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
