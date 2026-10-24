@@ -404,6 +404,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   };
 
   return (
+    <>
     <div className="h-dvh min-h-[28rem] overflow-hidden bg-gradient-to-br from-slate-900 via-emerald-950/80 to-slate-900 flex flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur border-b border-slate-700/50">
@@ -725,6 +726,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
       </div>
       {profileOpen && <ProfileSettings onClose={() => setProfileOpen(false)} />}
     </div>
+    </>
   );
 }
 
