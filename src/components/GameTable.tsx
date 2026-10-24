@@ -294,8 +294,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
       dummyCardW = computeHorizontalCardW(zoneW, Math.max(40, zoneH), dummyHandCards, 220);
     } else {
       const zoneW = edgeW - ZONE_PAD;
-      const zoneH = centerH - ZONE_PAD;
-      dummyCardW = computeSuitRowCardW(Math.max(40, zoneW), Math.max(40, zoneH), dummyHandCards, 160);
+      dummyCardW = computeSuitRowCardW(Math.max(40, zoneW), Math.max(40, h - 40), dummyHandCards, 180);
     }
   }
 
@@ -341,6 +340,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                 onCardClick={getCardClickHandler(seat)}
                 legalCards={getLegalCardsForDisplay(seat)}
                 layout={layout}
+                cardOverlap={isDummySeatHere ? 0.25 : undefined}
               />
             ) : (
               <HandDisplay
@@ -355,6 +355,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                 layout={layout}
                 onCardClick={getCardClickHandler(seat)}
                 legalCards={getLegalCardsForDisplay(seat)}
+                cardOverlap={isDummySeatHere ? 0.25 : undefined}
               />
             )
           ) : (
@@ -476,7 +477,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
 
           {/* Left seat */}
           {seatBySide.left && (
-            <div style={{ gridArea: 'left' }} className="relative overflow-hidden flex items-center justify-end pr-2 z-10">
+            <div style={{ gridArea: 'left' }} className="relative overflow-visible flex items-center justify-end pr-2 z-10">
               {renderSeatContent(seatBySide.left)}
             </div>
           )}
@@ -553,7 +554,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
 
           {/* Right seat */}
           {seatBySide.right && (
-            <div style={{ gridArea: 'right' }} className="relative overflow-hidden flex items-center justify-start pl-2 z-10">
+            <div style={{ gridArea: 'right' }} className="relative overflow-visible flex items-center justify-start pl-2 z-10">
               {renderSeatContent(seatBySide.right)}
             </div>
           )}

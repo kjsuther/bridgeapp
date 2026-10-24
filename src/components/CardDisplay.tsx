@@ -107,6 +107,7 @@ interface HandDisplayProps {
   trumpStrain?: string;
   compact?: boolean;
   layout?: HandLayout;
+  cardOverlap?: number;
 }
 
 export function HandDisplay({
@@ -122,6 +123,7 @@ export function HandDisplay({
   trumpStrain,
   compact = true,
   layout,
+  cardOverlap,
 }: HandDisplayProps) {
   if (hidden) {
     return (
@@ -140,7 +142,7 @@ export function HandDisplay({
 
   if (layout === 'horizontal' || (!layout && !compact)) {
     // Player's own hand: horizontal fan — heavy overlap, only corner needs to show
-    const overlap = cardW * 0.68;
+    const overlap = cardW * (cardOverlap ?? 0.68);
     const cardAdvance = cardW - overlap;
     const suitGap = cardW * 0.1;
     const nonEmptySuits = suits.filter((s) => bySuit[s].length > 0);
@@ -192,6 +194,7 @@ export function HandDisplay({
           cardW={cardW}
           onCardClick={onCardClick}
           legalCards={legalCards}
+          overlap={cardOverlap}
         />
       ) : (
         <SuitColumnHand
@@ -200,6 +203,7 @@ export function HandDisplay({
           cardW={cardW}
           onCardClick={onCardClick}
           legalCards={legalCards}
+          overlap={cardOverlap}
         />
       )}
     </div>
@@ -212,15 +216,17 @@ function SuitRowHand({
   cardW,
   onCardClick,
   legalCards,
+  overlap = 0.7,
 }: {
   suits: Suit[];
   bySuit: Record<Suit, Card[]>;
   cardW: number;
   onCardClick?: (card: Card) => void;
   legalCards?: Set<string>;
+  overlap?: number;
 }) {
   const cardH = cardW * 1.4;
-  const hOverlap = cardW * 0.7;
+  const hOverlap = cardW * overlap;
   const hAdvance = cardW - hOverlap;
   const rowGap = cardH * 0.04;
   const nonEmptySuits = suits.filter((suit) => bySuit[suit].length > 0);
@@ -398,6 +404,7 @@ interface DummyHandDisplayProps {
   cardWidth?: number;
   trumpStrain?: string;
   layout?: HandLayout;
+  cardOverlap?: number;
 }
 
 export function DummyHandDisplay({
@@ -408,6 +415,7 @@ export function DummyHandDisplay({
   cardWidth,
   trumpStrain,
   layout = 'side',
+  cardOverlap = 0.25,
 }: DummyHandDisplayProps) {
   const suits = suitOrderFor(trumpStrain);
   const bySuit: Record<Suit, Card[]> = { S: [], H: [], D: [], C: [] };
@@ -424,6 +432,7 @@ export function DummyHandDisplay({
           cardWidth={cardW}
           trumpStrain={trumpStrain}
           layout="horizontal"
+          cardOverlap={cardOverlap}
           onCardClick={onCardClick}
           legalCards={legalCards}
         />
