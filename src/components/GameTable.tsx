@@ -11,9 +11,10 @@ import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/b
 import { SEATS, SUIT_SYMBOLS, STRAIN_SYMBOLS, sideOfSeat } from '@/types/bridge';
 import { getLegalCards } from '@/lib/play';
 import { AvatarFigure } from '@/components/AvatarFigure';
-import { AVATAR_STYLES, DEFAULT_AVATAR_STYLE, isAvatarStyle, type AvatarStyle } from '@/lib/avatars';
+import { DEFAULT_AVATAR_STYLE, isAvatarStyle, type AvatarStyle } from '@/lib/avatars';
+import { ProfileSettings } from '@/components/ProfileSettings';
 import {
-  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Sparkles,
+  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
@@ -161,7 +162,8 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   );
 
   const [avatarStyle, setAvatarStyle] = useState<AvatarStyle>(DEFAULT_AVATAR_STYLE);
-  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [animToggleOpen, setAnimToggleOpen] = useState(false);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [fastAnimations, setFastAnimations] = useState(false);
   const [avatarPlay, setAvatarPlay] = useState<{ seat: Seat; card: Card; key: string } | null>(null);
@@ -431,40 +433,36 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setProfileOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-600"
+          >
+            <UserRound className="h-4 w-4" />
+            Profile
+          </button>
           <div className="relative">
             <button
-              onClick={() => setAvatarPickerOpen((open) => !open)}
-              className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-600"
-              aria-expanded={avatarPickerOpen}
+              onClick={() => setAnimToggleOpen((open) => !open)}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white transition-colors ${fastAnimations ? 'bg-amber-600 hover:bg-amber-500' : animationsEnabled ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-700/50 hover:bg-slate-600'}`}
+              aria-expanded={animToggleOpen}
+              title="Card play animation settings"
             >
-              <UserRound className="h-4 w-4" />
-              Avatar
+              <Zap className="h-4 w-4" />
+              {fastAnimations ? 'Fast' : animationsEnabled ? 'On' : 'Off'}
             </button>
-            {avatarPickerOpen && (
-              <div className="absolute right-0 top-10 z-40 w-64 rounded-xl border border-slate-700 bg-slate-900/95 p-3 shadow-2xl backdrop-blur">
+            {animToggleOpen && (
+              <div className="absolute right-0 top-10 z-40 w-56 rounded-xl border border-slate-700 bg-slate-900/95 p-3 shadow-2xl backdrop-blur">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-white">Your table avatar</span>
-                  <button onClick={() => setAvatarPickerOpen(false)} className="text-xs text-slate-400 hover:text-white">Close</button>
+                  <span className="text-xs font-semibold text-white">Animation</span>
+                  <button onClick={() => setAnimToggleOpen(false)} className="text-xs text-slate-400 hover:text-white">Close</button>
                 </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {(Object.keys(AVATAR_STYLES) as AvatarStyle[]).map((style) => (
-                    <button
-                      key={style}
-                      onClick={() => { setAvatarStyle(style); setAvatarPickerOpen(false); }}
-                      className={`rounded-lg border p-2 transition-colors ${avatarStyle === style ? 'border-amber-400 bg-amber-400/10' : 'border-slate-700 hover:border-slate-500'}`}
-                      aria-label={`Choose ${AVATAR_STYLES[style].label} avatar`}
-                    >
-                      <AvatarFigure style={style} />
-                    </button>
-                  ))}
-                </div>
-                <label className="mt-3 flex items-center justify-between text-xs text-slate-300">
+                <label className="flex items-center justify-between text-xs text-slate-300 py-1.5 cursor-pointer">
                   Animated card play
-                  <input type="checkbox" checked={animationsEnabled} onChange={(event) => setAnimationsEnabled(event.target.checked)} className="accent-emerald-500" />
+                  <input type="checkbox" checked={animationsEnabled} onChange={(event) => setAnimationsEnabled(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
                 </label>
-                <label className="mt-2 flex items-center justify-between text-xs text-slate-300">
+                <label className={`flex items-center justify-between text-xs py-1.5 cursor-pointer ${!animationsEnabled ? 'opacity-40' : ''}`}>
                   Fast play
-                  <input type="checkbox" checked={fastAnimations} onChange={(event) => setFastAnimations(event.target.checked)} className="accent-emerald-500" />
+                  <input type="checkbox" checked={fastAnimations} disabled={!animationsEnabled} onChange={(event) => setFastAnimations(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
                 </label>
               </div>
             )}
@@ -725,6 +723,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           </div>
         </div>
       </div>
+      {profileOpen && <ProfileSettings onClose={() => setProfileOpen(false)} />}
     </div>
   );
 }
