@@ -122,3 +122,12 @@ export function dealerForHand(handNumber: number, firstDealer: Seat): Seat {
   const offset = (handNumber - 1) % 4;
   return SEATS[(dealerIdx + offset) % 4];
 }
+
+// Maps a seat through the N↔E, S↔W swap used when replaying a hand.
+// The database copies cards with N↔E and S↔W swapped, so the player who
+// held the original dealer's cards is now at the swapped seat.
+const REPLAY_SEAT_SWAP: Record<Seat, Seat> = { N: 'E', E: 'N', S: 'W', W: 'S' };
+
+export function swapSeatForReplay(seat: Seat): Seat {
+  return REPLAY_SEAT_SWAP[seat];
+}

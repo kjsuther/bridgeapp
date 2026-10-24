@@ -10,7 +10,7 @@ import {
   sideOfSeat, isVulnerable, SEATS,
 } from '@/types/bridge';
 import {
-  jsonToDeal, sortHand, dealerForHand, vulnerabilityForHand,
+  jsonToDeal, sortHand, dealerForHand, vulnerabilityForHand, swapSeatForReplay,
 } from '@/lib/dealing';
 import {
   isValidBid, isAuctionComplete, isPassedOut, determineContract, getBidderSeat,
@@ -384,9 +384,11 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     const { role, originalHandId, originalDealer, originalVulnerability } = await getHandSchedule(hNum);
 
     // Replay hands reuse the original board's dealer and vulnerability so the
-    // auction starts from the same position. Original hands use the standard cycle.
+    // auction starts from the same position. The dealer is swapped (N↔E, S↔W)
+    // to match the card swap — the player who held the dealer's hand in the
+    // original is now at the swapped seat. Original hands use the standard cycle.
     const firstDealer: Seat = 'N';
-    const newDealer = originalDealer ?? dealerForHand(hNum, firstDealer);
+    const newDealer = originalDealer ? swapSeatForReplay(originalDealer) : dealerForHand(hNum, firstDealer);
     const vul: Vulnerability = originalVulnerability ?? vulnerabilityForHand(hNum);
 
     const rpcParams: Record<string, unknown> = {
