@@ -194,7 +194,6 @@ export function HandDisplay({
           cardW={cardW}
           onCardClick={onCardClick}
           legalCards={legalCards}
-          overlap={cardOverlap}
         />
       ) : (
         <SuitColumnHand
@@ -443,6 +442,7 @@ export function DummyHandDisplay({
         cardW={cardW}
         onCardClick={onCardClick}
           legalCards={legalCards}
+          overlap={cardOverlap}
         />
       )}
     </div>

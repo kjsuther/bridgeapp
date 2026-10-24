@@ -11,7 +11,7 @@ import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/b
 import { SEATS, SUIT_SYMBOLS, STRAIN_SYMBOLS, sideOfSeat } from '@/types/bridge';
 import { getLegalCards } from '@/lib/play';
 import {
-  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X,
+  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Sparkles,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
@@ -21,6 +21,14 @@ interface GameTableProps {
 }
 
 type ViewSide = 'bottom' | 'left' | 'top' | 'right';
+type AvatarStyle = 'cobalt' | 'coral' | 'mint' | 'gold';
+
+const AVATAR_STYLES: Record<AvatarStyle, { label: string; skin: string; shirt: string; accent: string }> = {
+  cobalt: { label: 'Cobalt', skin: 'bg-amber-200', shirt: 'bg-blue-600', accent: 'bg-blue-300' },
+  coral: { label: 'Coral', skin: 'bg-orange-200', shirt: 'bg-rose-600', accent: 'bg-rose-300' },
+  mint: { label: 'Mint', skin: 'bg-emerald-200', shirt: 'bg-teal-600', accent: 'bg-teal-300' },
+  gold: { label: 'Gold', skin: 'bg-yellow-200', shirt: 'bg-amber-600', accent: 'bg-amber-300' },
+};
 
 function useContainerSize() {
   const ref = useRef<HTMLDivElement>(null);
@@ -145,6 +153,31 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     () => (mySeat ? rotationFor(mySeat) : { S: 'bottom', W: 'left', N: 'top', E: 'right' }),
     [mySeat],
   );
+
+  const [avatarStyle, setAvatarStyle] = useState<AvatarStyle>(() => {
+    const saved = localStorage.getItem('bridge-avatar-style');
+    return saved && saved in AVATAR_STYLES ? saved as AvatarStyle : 'cobalt';
+  });
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
+  const [animationsEnabled, setAnimationsEnabled] = useState(true);
+  const [fastAnimations, setFastAnimations] = useState(false);
+  const [avatarPlay, setAvatarPlay] = useState<{ seat: Seat; card: Card; key: string } | null>(null);
+  const currentTrickCard = playState?.currentTrick.at(-1) ?? null;
+  const animationKey = phase === 'playing' && currentTrickCard
+    ? `${playState?.trickNumber ?? 0}-${playState?.currentTrick.length ?? 0}-${currentTrickCard.seat}-${currentTrickCard.card.rank}${currentTrickCard.card.suit}`
+    : '';
+
+  useEffect(() => {
+    localStorage.setItem('bridge-avatar-style', avatarStyle);
+  }, [avatarStyle]);
+
+  useEffect(() => {
+    if (!animationKey || !currentTrickCard || !animationsEnabled) return;
+    const nextPlay = { seat: currentTrickCard.seat, card: currentTrickCard.card, key: animationKey };
+    setAvatarPlay(nextPlay);
+    const timeout = window.setTimeout(() => setAvatarPlay((current) => current?.key === animationKey ? null : current), fastAnimations ? 520 : 900);
+    return () => window.clearTimeout(timeout);
+  }, [animationKey, currentTrickCard, animationsEnabled, fastAnimations]);
 
   const lastBidPerSeat: Record<Seat, AuctionEntry | null> = useMemo(() => {
     const map: Record<Seat, AuctionEntry | null> = { N: null, E: null, S: null, W: null };
@@ -396,6 +429,44 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          <div className="relative">
+            <button
+              onClick={() => setAvatarPickerOpen((open) => !open)}
+              className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-600"
+              aria-expanded={avatarPickerOpen}
+            >
+              <UserRound className="h-4 w-4" />
+              Avatar
+            </button>
+            {avatarPickerOpen && (
+              <div className="absolute right-0 top-10 z-40 w-64 rounded-xl border border-slate-700 bg-slate-900/95 p-3 shadow-2xl backdrop-blur">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-white">Your table avatar</span>
+                  <button onClick={() => setAvatarPickerOpen(false)} className="text-xs text-slate-400 hover:text-white">Close</button>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {(Object.keys(AVATAR_STYLES) as AvatarStyle[]).map((style) => (
+                    <button
+                      key={style}
+                      onClick={() => { setAvatarStyle(style); setAvatarPickerOpen(false); }}
+                      className={`rounded-lg border p-2 transition-colors ${avatarStyle === style ? 'border-amber-400 bg-amber-400/10' : 'border-slate-700 hover:border-slate-500'}`}
+                      aria-label={`Choose ${AVATAR_STYLES[style].label} avatar`}
+                    >
+                      <AvatarFigure style={style} />
+                    </button>
+                  ))}
+                </div>
+                <label className="mt-3 flex items-center justify-between text-xs text-slate-300">
+                  Animated card play
+                  <input type="checkbox" checked={animationsEnabled} onChange={(event) => setAnimationsEnabled(event.target.checked)} className="accent-emerald-500" />
+                </label>
+                <label className="mt-2 flex items-center justify-between text-xs text-slate-300">
+                  Fast play
+                  <input type="checkbox" checked={fastAnimations} onChange={(event) => setFastAnimations(event.target.checked)} className="accent-emerald-500" />
+                </label>
+              </div>
+            )}
+          </div>
           {phase === 'playing' && playState && !playState.undoRequest && hasCardsPlayed && canRequestUndo && (
             <button
               onClick={() => requestUndo()}
@@ -467,6 +538,17 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
         >
           {/* Felt table background */}
           <div className="absolute inset-4 rounded-2xl bg-gradient-to-br from-emerald-900/40 to-emerald-950/60 border border-emerald-800/30 pointer-events-none" />
+
+          {avatarPlay && animationsEnabled && (
+            <AnimatedPlayCard
+              key={avatarPlay.key}
+              card={avatarPlay.card}
+              side={viewSides[avatarPlay.seat]}
+              cardWidth={playedCardW}
+              avatarStyle={avatarPlay.seat === mySeat ? avatarStyle : defaultAvatarForSeat(avatarPlay.seat)}
+              fast={fastAnimations}
+            />
+          )}
 
           {/* Top seat */}
           {seatBySide.top && (
@@ -588,6 +670,11 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                     muted={isLocal || !outputEnabled}
                     className="w-full aspect-[4/3]"
                   />
+                  {avatarPlay?.seat === seat && animationsEnabled && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-8 flex justify-center">
+                      <AvatarFigure style={seat === mySeat ? avatarStyle : defaultAvatarForSeat(seat)} active />
+                    </div>
+                  )}
                   {phase === 'bidding' && lastBidPerSeat[seat] && (
                     <BidBadge bid={lastBidPerSeat[seat]!.bid} />
                   )}
@@ -642,6 +729,35 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function defaultAvatarForSeat(seat: Seat): AvatarStyle {
+  return ({ N: 'cobalt', E: 'coral', S: 'mint', W: 'gold' } as Record<Seat, AvatarStyle>)[seat];
+}
+
+function AvatarFigure({ style, active = false }: { style: AvatarStyle; active?: boolean }) {
+  const colors = AVATAR_STYLES[style];
+  return (
+    <div className={`relative h-12 w-10 ${active ? 'avatar-reach' : ''}`} aria-hidden="true">
+      <div className={`absolute left-1/2 top-1 h-6 w-6 -translate-x-1/2 rounded-full ${colors.skin} shadow-sm`}>
+        <span className={`absolute left-1/2 top-1 h-1.5 w-3 -translate-x-1/2 rounded-full ${colors.accent}`} />
+      </div>
+      <div className={`absolute bottom-0 left-1/2 h-7 w-9 -translate-x-1/2 rounded-t-[1rem] ${colors.shirt} shadow-md`}>
+        <span className={`absolute left-1/2 top-2 h-2 w-2 -translate-x-1/2 rounded-full ${colors.accent}`} />
+      </div>
+    </div>
+  );
+}
+
+function AnimatedPlayCard({ card, side, cardWidth, avatarStyle, fast }: { card: Card; side: ViewSide; cardWidth: number; avatarStyle: AvatarStyle; fast: boolean }) {
+  return (
+    <div className={`pointer-events-none absolute left-1/2 top-1/2 z-30 ${fast ? 'card-travel-fast' : ''} card-travel-from-${side}`}>
+      <div className="absolute -top-14 left-1/2 -translate-x-1/2">
+        <AvatarFigure style={avatarStyle} active />
+      </div>
+      <CardDisplay card={card} cardWidth={cardWidth} />
     </div>
   );
 }
