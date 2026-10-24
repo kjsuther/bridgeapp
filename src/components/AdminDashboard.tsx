@@ -165,6 +165,26 @@ export function AdminDashboard({ onBack }: AdminProps) {
                       )}
                       <span className="text-slate-600">#{game.id.slice(0, 6)}</span>
                     </div>
+                    {/* Show board numbers for completed hands */}
+                    {(() => {
+                      const gameHandObjs = hands.filter(h => h.game_id === game.id);
+                      const boardNums = gameHandObjs
+                        .map(h => h.hand_role === 'replay' && h.original_hand_id
+                          ? gameHandObjs.find(o => o.id === h.original_hand_id)?.hand_number ?? h.hand_number
+                          : h.hand_number)
+                        .filter((n, i, arr) => arr.indexOf(n) === i)
+                        .sort((a, b) => a - b);
+                      if (boardNums.length === 0) return null;
+                      return (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {boardNums.map(n => (
+                            <span key={n} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400">
+                              Board {n}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     {table && table.match_board_number > 0 && (
                       <div className="flex items-center gap-3 mt-1.5 text-xs">
                         <span className="text-emerald-400">A: {table.match_imps_a > 0 ? '+' : ''}{table.match_imps_a}</span>
@@ -355,6 +375,7 @@ function HandPairRow({ pair }: HandPairRowProps) {
   const replayComplete = replay && (replay.phase === 'scoring' || replay.phase === 'finished');
   const impValue = replay?.imp_result?.imps;
   const netPoints = replay?.imp_result?.netPoints;
+  const boardNumber = pair.originalHandNumber || original?.hand_number || 0;
 
   return (
     <div className={`rounded-xl border overflow-hidden ${
@@ -364,6 +385,15 @@ function HandPairRow({ pair }: HandPairRowProps) {
           : 'border-amber-700/30 bg-amber-950/10'
         : 'border-slate-700/30 bg-slate-800/30'
     }`}>
+      {/* Board number header */}
+      <div className="px-4 py-1.5 bg-slate-900/40 border-b border-slate-700/20 flex items-center justify-between">
+        <span className="text-xs font-medium text-slate-400">Board {boardNumber}</span>
+        {replayComplete && impValue !== undefined && impValue !== null && (
+          <span className={`text-xs font-bold ${impValue > 0 ? 'text-emerald-400' : impValue < 0 ? 'text-blue-400' : 'text-slate-400'}`}>
+            {impValue > 0 ? '+' : ''}{impValue} IMP
+          </span>
+        )}
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
         {/* Original hand */}
         <div className="p-4 border-b md:border-b-0 md:border-r border-slate-700/30">
@@ -404,7 +434,7 @@ function HandPairRow({ pair }: HandPairRowProps) {
         }`}>
           <span className="flex items-center gap-2">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            Board complete
+            Board {boardNumber} complete
           </span>
           <span className="flex items-center gap-4">
             <span>Net: {netPoints !== undefined ? `${netPoints > 0 ? '+' : ''}${netPoints} pts` : '—'}</span>
