@@ -372,7 +372,6 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                 onCardClick={getCardClickHandler(seat)}
                 legalCards={getLegalCardsForDisplay(seat)}
                 layout={layout}
-                cardOverlap={isDummySeatHere ? 0.25 : undefined}
               />
             ) : (
               <HandDisplay
@@ -387,7 +386,6 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                 layout={layout}
                 onCardClick={getCardClickHandler(seat)}
                 legalCards={getLegalCardsForDisplay(seat)}
-                cardOverlap={isDummySeatHere ? 0.25 : undefined}
               />
             )
           ) : (

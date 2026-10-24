@@ -416,7 +416,7 @@ export function DummyHandDisplay({
   cardWidth,
   trumpStrain,
   layout = 'side',
-  cardOverlap = 0.25,
+  cardOverlap = layout === 'horizontal' ? 0.68 : 0.7,
 }: DummyHandDisplayProps) {
   const suits = suitOrderFor(trumpStrain);
   const bySuit: Record<Suit, Card[]> = { S: [], H: [], D: [], C: [] };
