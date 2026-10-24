@@ -2,7 +2,7 @@ import { useGame } from '@/context/GameContext';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { useAuth } from '@/context/AuthContext';
 import { VideoTile } from '@/components/VideoTile';
-import { HandDisplay, PlayedCard, CardBackFan, DummyHandDisplay, type HandLayout } from '@/components/CardDisplay';
+import { CardDisplay, HandDisplay, PlayedCard, CardBackFan, DummyHandDisplay, type HandLayout } from '@/components/CardDisplay';
 import { BiddingPanel, AuctionHistory } from '@/components/BiddingPanel';
 import { ScorePanel, NextHandButton } from '@/components/ScorePanel';
 import { DoubleDummyReview } from '@/components/DoubleDummyReview';
@@ -162,7 +162,8 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [fastAnimations, setFastAnimations] = useState(false);
   const [avatarPlay, setAvatarPlay] = useState<{ seat: Seat; card: Card; key: string } | null>(null);
-  const currentTrickCard = playState?.currentTrick.at(-1) ?? null;
+  const currentTrick = playState?.currentTrick ?? [];
+  const currentTrickCard = currentTrick.length > 0 ? currentTrick[currentTrick.length - 1] : null;
   const animationKey = phase === 'playing' && currentTrickCard
     ? `${playState?.trickNumber ?? 0}-${playState?.currentTrick.length ?? 0}-${currentTrickCard.seat}-${currentTrickCard.card.rank}${currentTrickCard.card.suit}`
     : '';
@@ -274,8 +275,6 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     if (userId === myUserId) return localStream;
     return peerStreams.get(userId) ?? null;
   };
-
-  const currentTrick = playState?.currentTrick ?? [];
 
   const hasCardsPlayed = (playState?.currentTrick.length ?? 0) > 0 || (playState?.completedTricks.length ?? 0) > 0;
   const canRequestUndo = (() => {

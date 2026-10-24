@@ -273,12 +273,14 @@ function SuitColumnHand({
   cardW,
   onCardClick,
   legalCards,
+  overlap = 0.78,
 }: {
   suits: Suit[];
   bySuit: Record<Suit, Card[]>;
   cardW: number;
   onCardClick?: (card: Card) => void;
   legalCards?: Set<string>;
+  overlap?: number;
 }) {
   const cardH = cardW * 1.4;
   const vOverlap = cardH * 0.78;
