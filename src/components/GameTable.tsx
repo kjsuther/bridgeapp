@@ -2,7 +2,7 @@ import { useGame } from '@/context/GameContext';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { useAuth } from '@/context/AuthContext';
 import { VideoTile } from '@/components/VideoTile';
-import { HandDisplay, PlayedCard, CardBackFan, DummyHandDisplay } from '@/components/CardDisplay';
+import { HandDisplay, PlayedCard, CardBackFan, DummyHandDisplay, type HandLayout } from '@/components/CardDisplay';
 import { BiddingPanel, AuctionHistory } from '@/components/BiddingPanel';
 import { ScorePanel, NextHandButton } from '@/components/ScorePanel';
 import { DoubleDummyReview } from '@/components/DoubleDummyReview';
@@ -70,6 +70,21 @@ function suitColumnFactors(hand: Card[]) {
 function computeSuitColumnCardW(zoneW: number, zoneH: number, hand: Card[], maxW = 120): number {
   const { widthFactor, heightFactor } = suitColumnFactors(hand);
   return Math.max(20, Math.min(zoneW / widthFactor, zoneH / heightFactor, maxW));
+}
+
+function computeSuitRowCardW(zoneW: number, zoneH: number, hand: Card[], maxW = 120): number {
+  const bySuit: Record<string, Card[]> = {};
+  for (const card of hand) (bySuit[card.suit] ??= []).push(card);
+  const nonEmptySuits = Object.values(bySuit).filter((cards) => cards.length > 0);
+  const longestRow = Math.max(1, ...nonEmptySuits.map((cards) => cards.length));
+  const rowCount = Math.max(1, nonEmptySuits.length);
+  const widthFactor = 1 + (longestRow - 1) * 0.3;
+  const heightFactor = rowCount * 1.44;
+  return Math.max(20, Math.min(zoneW / widthFactor, zoneH / heightFactor, maxW));
+}
+
+function computeHorizontalCardW(zoneW: number, zoneH: number, hand: Card[], maxW = 220): number {
+  return Math.max(24, Math.min(zoneW / handWidthFactor(hand), zoneH / 1.4, maxW));
 }
 
 const TRICK_POSITION_CLASSES: Record<ViewSide, string> = {
@@ -264,15 +279,10 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   const ZONE_PAD = 8;
 
   const myHandCards = getHand(mySeat);
-  const myCardW = Math.max(44, Math.min(
-    (w - 40) / handWidthFactor(myHandCards),
-    (edgeH - ZONE_PAD) / 1.4,
-    240,
-  ));
+  const myCardW = Math.max(44, computeHorizontalCardW(w - 40, edgeH - ZONE_PAD, myHandCards, 240));
 
   // Video tiles live in the corners — they don't consume card space
   const cornerVideoW = Math.min(160, w * 0.14, h * 0.16);
-  const cornerVideoH = cornerVideoW * 0.75;
 
   let dummyCardW = 40;
   if (dummy && isDummyRevealed && phase === 'playing') {
@@ -281,17 +291,18 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
     if (dummySide === 'top' || dummySide === 'bottom') {
       const zoneW = w - 40;
       const zoneH = edgeH - ZONE_PAD;
-      dummyCardW = computeSuitColumnCardW(zoneW, Math.max(40, zoneH), dummyHandCards, 200);
+      dummyCardW = computeHorizontalCardW(zoneW, Math.max(40, zoneH), dummyHandCards, 220);
     } else {
       const zoneW = edgeW - ZONE_PAD;
       const zoneH = centerH - ZONE_PAD;
-      dummyCardW = computeSuitColumnCardW(Math.max(40, zoneW), Math.max(40, zoneH), dummyHandCards, 160);
+      dummyCardW = computeSuitRowCardW(Math.max(40, zoneW), Math.max(40, zoneH), dummyHandCards, 160);
     }
   }
 
   const otherHandCards = SEATS.filter(s => s !== mySeat && s !== dummy).map(s => getHand(s)).find(h => h.length > 0) || [];
-  const otherCardW = Math.max(36, Math.min(
-    computeSuitColumnCardW(edgeW - ZONE_PAD, edgeH - ZONE_PAD, otherHandCards, 110),
+  const otherHorizontalCardW = Math.max(36, computeHorizontalCardW(w - 40, edgeH - ZONE_PAD, otherHandCards, 150));
+  const otherSideCardW = Math.max(36, Math.min(
+    computeSuitRowCardW(edgeW - ZONE_PAD, centerH - ZONE_PAD, otherHandCards, 110),
     110,
   ));
   const playedCardW = Math.max(56, Math.min(centerW * 0.3, centerH * 0.3, 140));
@@ -303,11 +314,13 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
   }
 
   const renderSeatContent = (seat: Seat) => {
+    const side = viewSides[seat];
     const isMe = seat === mySeat;
     const isDummySeatHere = dummy === seat && isDummyRevealed && phase === 'playing';
     const showHand = shouldShowHand(seat);
     const isTurnNow = currentSeat === seat && phase !== 'finished';
-    const cardW = isMe ? myCardW : isDummySeatHere ? dummyCardW : otherCardW;
+    const layout: HandLayout = side === 'top' || side === 'bottom' ? 'horizontal' : 'side';
+    const cardW = isMe ? myCardW : isDummySeatHere ? dummyCardW : layout === 'horizontal' ? otherHorizontalCardW : otherSideCardW;
 
     return (
       <SeatBadge
@@ -315,8 +328,9 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
         isDealer={dealer === seat}
         isVulnerable={isVulnerable(seat, vulnerability)}
         seatLabel={seat}
+        playerName={seatToName[seat] || seat}
       >
-        <div className="flex flex-col items-center gap-1">
+        <div className={`flex flex-col items-center gap-1 ${layout === 'side' ? 'max-w-full' : ''}`}>
           {showHand ? (
             dummy === seat && isDummyRevealed && phase === 'playing' ? (
               <DummyHandDisplay
@@ -326,6 +340,7 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                 trumpStrain={contract?.strain}
                 onCardClick={getCardClickHandler(seat)}
                 legalCards={getLegalCardsForDisplay(seat)}
+                layout={layout}
               />
             ) : (
               <HandDisplay
@@ -336,7 +351,8 @@ export function GameTable({ tableId, onLeave }: GameTableProps) {
                 isDummy={dummy === seat && isDummyRevealed}
                 isTurn={isTurnNow && phase === 'playing'}
                 trumpStrain={contract?.strain}
-                compact={isMe ? false : true}
+                compact={layout === 'horizontal' ? false : true}
+                layout={layout}
                 onCardClick={getCardClickHandler(seat)}
                 legalCards={getLegalCardsForDisplay(seat)}
               />
@@ -634,25 +650,19 @@ interface SeatBadgeProps {
   isDealer: boolean;
   isVulnerable: boolean;
   seatLabel: Seat;
+  playerName: string;
   children: ReactNode;
 }
 
-function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, children }: SeatBadgeProps) {
+function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, playerName, children }: SeatBadgeProps) {
   return (
     <div className={`relative transition-all ${isTurn ? 'ring-2 ring-amber-400 rounded-xl p-1' : ''}`}>
-      <div className="absolute -top-2 left-1/2 -translate-x-1/2 text-[10px] font-bold text-slate-300 bg-slate-800/80 rounded px-1.5 py-0.5 z-10">
-        {seatLabel}
+      <div className="mb-1 flex items-center gap-1 overflow-hidden rounded bg-slate-900/90 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+        <span className="shrink-0 text-emerald-300">{seatLabel}</span>
+        <span className="truncate">{playerName}</span>
+        {isDealer && <span className="shrink-0 rounded bg-amber-500 px-1 text-[9px] text-white">D</span>}
+        {isVulnerable && <span className="shrink-0 rounded bg-red-500 px-1 text-[9px] text-white">V</span>}
       </div>
-      {isDealer && (
-        <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center z-10 shadow-md">
-          D
-        </div>
-      )}
-      {isVulnerable && (
-        <div className="absolute -bottom-2 -left-2 w-5 h-5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center z-10 shadow-md">
-          V
-        </div>
-      )}
       {children}
     </div>
   );

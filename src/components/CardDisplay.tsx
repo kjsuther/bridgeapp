@@ -91,6 +91,8 @@ function suitOrderFor(trumpStrain?: string): Suit[] {
   return base;
 }
 
+export type HandLayout = 'horizontal' | 'side';
+
 interface HandDisplayProps {
   hand: Card[];
   seat: Seat;
@@ -104,6 +106,7 @@ interface HandDisplayProps {
   cardWidth?: number;
   trumpStrain?: string;
   compact?: boolean;
+  layout?: HandLayout;
 }
 
 export function HandDisplay({
@@ -118,6 +121,7 @@ export function HandDisplay({
   cardWidth,
   trumpStrain,
   compact = true,
+  layout,
 }: HandDisplayProps) {
   if (hidden) {
     return (
@@ -134,7 +138,7 @@ export function HandDisplay({
 
   const cardW = cardWidth ?? CARD_WIDTH[size];
 
-  if (!compact) {
+  if (layout === 'horizontal' || (!layout && !compact)) {
     // Player's own hand: horizontal fan — heavy overlap, only corner needs to show
     const overlap = cardW * 0.68;
     const cardAdvance = cardW - overlap;
@@ -174,7 +178,6 @@ export function HandDisplay({
     );
   }
 
-  // Compact mode: vertical suit columns — heavy vertical overlap, only corner needs to show
   return (
     <div className={`flex flex-col gap-0.5 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-1.5' : ''}`}>
       {label && (
@@ -182,18 +185,84 @@ export function HandDisplay({
           {label}{isDummy && ' · Dummy'}
         </span>
       )}
-      <SuitColumnHand
-        suits={suits}
-        bySuit={bySuit}
-        cardW={cardW}
-        onCardClick={onCardClick}
-        legalCards={legalCards}
-      />
+      {layout === 'side' ? (
+        <SuitRowHand
+          suits={suits}
+          bySuit={bySuit}
+          cardW={cardW}
+          onCardClick={onCardClick}
+          legalCards={legalCards}
+        />
+      ) : (
+        <SuitColumnHand
+          suits={suits}
+          bySuit={bySuit}
+          cardW={cardW}
+          onCardClick={onCardClick}
+          legalCards={legalCards}
+        />
+      )}
     </div>
   );
 }
 
-function SuitColumnHand({
+function SuitRowHand({
+  suits,
+  bySuit,
+  cardW,
+  onCardClick,
+  legalCards,
+}: {
+  suits: Suit[];
+  bySuit: Record<Suit, Card[]>;
+  cardW: number;
+  onCardClick?: (card: Card) => void;
+  legalCards?: Set<string>;
+}) {
+  const cardH = cardW * 1.4;
+  const hOverlap = cardW * 0.7;
+  const hAdvance = cardW - hOverlap;
+  const rowGap = cardH * 0.04;
+  const nonEmptySuits = suits.filter((suit) => bySuit[suit].length > 0);
+  const maxCards = Math.max(1, ...nonEmptySuits.map((suit) => bySuit[suit].length));
+  const totalWidth = cardW + (maxCards - 1) * hAdvance;
+  const totalHeight = nonEmptySuits.length * cardH + Math.max(0, nonEmptySuits.length - 1) * rowGap;
+
+  return (
+    <div className="flex flex-col" style={{ width: totalWidth, height: totalHeight }}>
+      {suits.map((suit) => {
+        const cards = bySuit[suit];
+        if (cards.length === 0) return null;
+        return (
+          <div key={suit} className="flex items-start" style={{ height: cardH, marginTop: rowGap }}>
+            {cards.map((card, cardIdx) => {
+              const cardKey = `${card.rank}${card.suit}`;
+              const isLegal = legalCards?.has(cardKey) ?? false;
+              const canClick = !!onCardClick && (legalCards ? isLegal : true);
+              return (
+                <div
+                  key={cardKey}
+                  className="relative"
+                  style={{ zIndex: cardIdx, ...(cardIdx > 0 ? { marginLeft: -hOverlap } : {}) }}
+                >
+                  <CardDisplay
+                    card={card}
+                    cardWidth={cardW}
+                    onClick={canClick ? () => onCardClick(card) : undefined}
+                    disabled={!canClick}
+                    highlight={isLegal && !!onCardClick}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SuitColumnHand({ 
   suits,
   bySuit,
   cardW,
@@ -328,6 +397,7 @@ interface DummyHandDisplayProps {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   cardWidth?: number;
   trumpStrain?: string;
+  layout?: HandLayout;
 }
 
 export function DummyHandDisplay({
@@ -337,6 +407,7 @@ export function DummyHandDisplay({
   isTurn,
   cardWidth,
   trumpStrain,
+  layout = 'side',
 }: DummyHandDisplayProps) {
   const suits = suitOrderFor(trumpStrain);
   const bySuit: Record<Suit, Card[]> = { S: [], H: [], D: [], C: [] };
@@ -346,13 +417,25 @@ export function DummyHandDisplay({
   return (
     <div className={`flex flex-col gap-0.5 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-1.5' : ''}`}>
       <span className="text-sm font-bold text-amber-400">Dummy</span>
-      <SuitColumnHand
-        suits={suits}
+      {layout === 'horizontal' ? (
+        <HandDisplay
+          hand={hand}
+          seat="S"
+          cardWidth={cardW}
+          trumpStrain={trumpStrain}
+          layout="horizontal"
+          onCardClick={onCardClick}
+          legalCards={legalCards}
+        />
+      ) : (
+        <SuitRowHand
+          suits={suits}
         bySuit={bySuit}
         cardW={cardW}
         onCardClick={onCardClick}
-        legalCards={legalCards}
-      />
+          legalCards={legalCards}
+        />
+      )}
     </div>
   );
 }
