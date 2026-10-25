@@ -123,11 +123,17 @@ export function dealerForHand(handNumber: number, firstDealer: Seat): Seat {
   return SEATS[(dealerIdx + offset) % 4];
 }
 
-// Maps a seat through the N↔E, S↔W swap used when replaying a hand.
-// The database copies cards with N↔E and S↔W swapped, so the player who
-// held the original dealer's cards is now at the swapped seat.
-const REPLAY_SEAT_SWAP: Record<Seat, Seat> = { N: 'E', E: 'N', S: 'W', W: 'S' };
+// Rotate cards one seat clockwise, exchanging partnerships while preserving
+// bidding order, the opening leader, and the order of cards within each trick.
+// Keep this mapping aligned with create_bridge_hand in the database.
+const REPLAY_SEAT_SWAP: Record<Seat, Seat> = { N: 'E', E: 'S', S: 'W', W: 'N' };
 
 export function swapSeatForReplay(seat: Seat): Seat {
   return REPLAY_SEAT_SWAP[seat];
+}
+
+export function swapVulnerabilityForReplay(vulnerability: Vulnerability): Vulnerability {
+  if (vulnerability === 'NS') return 'EW';
+  if (vulnerability === 'EW') return 'NS';
+  return vulnerability;
 }

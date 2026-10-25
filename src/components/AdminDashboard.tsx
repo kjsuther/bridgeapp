@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { scheduleHand } from '@/lib/matchSchedule';
-import { swapSeatForReplay } from '@/lib/dealing';
 import type { Contract, HandRole, Phase, Seat, Vulnerability } from '@/types/bridge';
 import { SUIT_SYMBOLS, STRAIN_SYMBOLS } from '@/types/bridge';
 import { ArrowLeft, Shield, RefreshCw, Layers, AlertCircle, CheckCircle2, Circle, Repeat2 } from 'lucide-react';
@@ -337,7 +336,7 @@ function GameDetail({ game, table, hands, tableName }: GameDetailProps) {
                 </span>
               </div>
               <div className="text-xs text-slate-500 ml-5">
-                Cards will be swapped N↔E, S↔W. Dealer and vulnerability will be copied from the original.
+                Cards and dealer rotate one seat clockwise (N→E→S→W→N). Vulnerability follows the cards.
               </div>
             </div>
           ) : (

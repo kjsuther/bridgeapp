@@ -11,6 +11,7 @@ import {
 } from '@/types/bridge';
 import {
   jsonToDeal, sortHand, dealerForHand, vulnerabilityForHand, swapSeatForReplay,
+  swapVulnerabilityForReplay,
 } from '@/lib/dealing';
 import {
   isValidBid, isAuctionComplete, isPassedOut, determineContract, getBidderSeat,
@@ -383,13 +384,13 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
     const { role, originalHandId, originalDealer, originalVulnerability } = await getHandSchedule(hNum);
 
-    // Replay hands reuse the original board's dealer and vulnerability so the
-    // auction starts from the same position. The dealer is swapped (N↔E, S↔W)
-    // to match the card swap — the player who held the dealer's hand in the
-    // original is now at the swapped seat. Original hands use the standard cycle.
+    // Dealer and vulnerability follow the cards' clockwise rotation on replay.
+    // The database also derives these values from the original board.
     const firstDealer: Seat = 'N';
     const newDealer = originalDealer ? swapSeatForReplay(originalDealer) : dealerForHand(hNum, firstDealer);
-    const vul: Vulnerability = originalVulnerability ?? vulnerabilityForHand(hNum);
+    const vul: Vulnerability = originalVulnerability
+      ? swapVulnerabilityForReplay(originalVulnerability)
+      : vulnerabilityForHand(hNum);
 
     const rpcParams: Record<string, unknown> = {
       p_game_id: gameId,
@@ -594,9 +595,9 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
           const replayContract = newContract;
           const origVul = (origHand.vulnerability ?? vulnerability) as Vulnerability;
 
-          const imps = computeImpResult(origContract, replayContract, origVul);
+          const imps = computeImpResult(origContract, replayContract, origVul, vulnerability);
           const origNsScore = rawScoreForNS(origContract, origVul);
-          const replayNsScore = rawScoreForNS(replayContract, origVul);
+          const replayNsScore = rawScoreForNS(replayContract, vulnerability);
           // Players stay in their seats for both playings; only the cards swap.
           // Team A = N+S in both playings, so the net points are the sum of the
           // raw NS scores. computeImpResult returns positive = Team A wins.
