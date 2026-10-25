@@ -1,10 +1,11 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { jsonToDeal, sortHand } from '@/lib/dealing';
-import type { Deal, Contract, AuctionEntry, PlayState, Seat, Vulnerability, Card, TrickCard, HandScore } from '@/types/bridge';
+import { solveFromPosition } from '@/lib/doubleDummy';
+import type { Deal, Contract, AuctionEntry, PlayState, Seat, Vulnerability, Card, TrickCard, HandScore, Suit } from '@/types/bridge';
 import { SEATS, SUIT_SYMBOLS } from '@/types/bridge';
-import { ArrowLeft, Scale, ChevronRight, ChevronLeft, Layers, Compass } from 'lucide-react';
+import { ArrowLeft, Scale, ChevronRight, ChevronLeft, Layers, Compass, Eye } from 'lucide-react';
 import { CardDisplay, HandDisplay } from '@/components/CardDisplay';
 
 interface HistoryProps {
@@ -642,6 +643,62 @@ function HandPanel({
     return `${seat} · ${name}`;
   };
 
+  // Double-dummy analysis: always-on, computed asynchronously with caching.
+  const [ddResult, setDdResult] = useState<{
+    totalTricks: number;
+    tricksWonSoFar: number;
+    cardIndex: number;
+  } | null>(null);
+  const [ddComputing, setDdComputing] = useState(false);
+  const ddCacheRef = useRef<Map<number, { totalTricks: number; tricksWonSoFar: number }>>(new Map());
+  const ddRunIdRef = useRef(0);
+
+  useEffect(() => {
+    const playedCount = Math.min(cardIndex + 1, allCards.length);
+    if (playedCount === 0) {
+      setDdResult(null);
+      return;
+    }
+
+    const cached = ddCacheRef.current.get(cardIndex);
+    if (cached) {
+      setDdResult({ totalTricks: cached.totalTricks, tricksWonSoFar: cached.tricksWonSoFar, cardIndex });
+      return;
+    }
+
+    const runId = ++ddRunIdRef.current;
+    setDdComputing(true);
+
+    // Defer to next tick so the UI can update before the synchronous solver runs.
+    const timer = setTimeout(() => {
+      const playedCards = allCards.slice(0, playedCount).map(tc => ({ seat: tc.seat, card: tc.card }));
+      const trump: Suit | null = trumpStrain === 'NT' ? null : (trumpStrain as Suit);
+      try {
+        const result = solveFromPosition(detail.deal, playedCards, trump, detail.contract.declarer);
+        if (runId !== ddRunIdRef.current) return;
+        ddCacheRef.current.set(cardIndex, { totalTricks: result.totalTricksDeclarer, tricksWonSoFar: result.tricksWonSoFar });
+        setDdResult({ totalTricks: result.totalTricksDeclarer, tricksWonSoFar: result.tricksWonSoFar, cardIndex });
+      } catch {
+        if (runId !== ddRunIdRef.current) return;
+        setDdResult(null);
+      }
+      setDdComputing(false);
+    }, 30);
+
+    return () => clearTimeout(timer);
+  }, [cardIndex, allCards, detail.deal, detail.contract.declarer, trumpStrain]);
+
+  const tricksNeeded = 6 + detail.contract.level;
+  const ddVerdict = ddResult
+    ? (() => {
+        const optimal = ddResult.totalTricks;
+        const diff = optimal - tricksNeeded;
+        if (diff > 0) return { text: `+${diff} overtrick${diff !== 1 ? 's' : ''} possible`, color: 'text-emerald-400' };
+        if (diff === 0) return { text: 'Contract makes exactly', color: 'text-amber-300' };
+        return { text: `Down ${Math.abs(diff)} with best play`, color: 'text-blue-400' };
+      })()
+    : null;
+
   return (
     <div className={`rounded-xl border ${accentBorder} ${accentBg} backdrop-blur overflow-hidden`}>
       <div className="px-4 py-3 border-b border-slate-700/40">
@@ -678,6 +735,43 @@ function HandPanel({
           <div className="flex justify-center">
             <HandDisplay hand={getRemainingHand('S')} seat="S" label={seatLabel('S')} cardWidth={36} trumpStrain={trumpStrain} />
           </div>
+        </div>
+
+        {/* Always-on double-dummy analysis for the current position */}
+        <div className="mt-3 bg-slate-900/50 border border-amber-800/30 rounded-lg p-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Eye className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-xs font-medium text-amber-300">Double-Dummy</span>
+            <span className="text-[10px] text-slate-500 ml-auto">optimal play from here</span>
+          </div>
+          {ddComputing ? (
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <div className="w-3 h-3 border border-amber-400 border-t-transparent rounded-full animate-spin" />
+              Analyzing position...
+            </div>
+          ) : ddResult ? (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">Best possible for declarer:</span>
+                <span className="text-white font-bold">{ddResult.totalTricks} tricks</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">Tricks won so far:</span>
+                <span className="text-slate-300">{ddResult.tricksWonSoFar}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">Contract needs:</span>
+                <span className="text-slate-300">{tricksNeeded} tricks</span>
+              </div>
+              {ddVerdict && (
+                <div className={`text-xs font-medium pt-1 border-t border-slate-700/30 ${ddVerdict.color}`}>
+                  {ddVerdict.text}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">Step forward to analyze the position.</p>
+          )}
         </div>
 
         <div className="mt-3 pt-3 border-t border-slate-700/30">

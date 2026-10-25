@@ -205,6 +205,144 @@ export function solveDeal(
   };
 }
 
+/**
+ * Complete a partially-played trick with optimal play from both sides,
+ * then continue with full double-dummy search for remaining tricks.
+ *
+ * The cards already played in the partial trick are fixed (removed from hands
+ * before calling). Only the remaining players choose optimally via alpha-beta.
+ */
+function completePartialTrick(
+  hands: Record<Seat, Card[]>,
+  trump: Suit | null,
+  declarer: Seat,
+  partialTrick: { seat: Seat; card: Card }[],
+  declarerTricks: number,
+  defenderTricks: number,
+  remainingDepth: number,
+  alpha: number,
+  beta: number,
+  memo: Map<string, number>,
+): number {
+  const trick = [...partialTrick];
+  const ledSuit = trick[0].card.suit;
+
+  function playNext(currentSeat: Seat): number {
+    if (trick.length === 4) {
+      const winner = trickWinner(trick, trump);
+      const wonForDeclarer = isNS(winner) === isNS(declarer);
+      const newDeclarerTricks = declarerTricks + (wonForDeclarer ? 1 : 0);
+      const newDefenderTricks = defenderTricks + (wonForDeclarer ? 0 : 1);
+      return solveDoubleDummy(hands, trump, declarer, winner, newDeclarerTricks, newDefenderTricks, remainingDepth, alpha, beta, memo);
+    }
+
+    const next = nextSeat(currentSeat);
+    const legalCards = getLegalCards(hands[next], ledSuit);
+    if (legalCards.length === 0) return declarerTricks;
+
+    const isDeclarerTurn = isNS(next) === isNS(declarer);
+    let bestTricks = isDeclarerTurn ? -1 : 14;
+
+    for (const card of legalCards) {
+      const savedHand = hands[next];
+      hands[next] = removeCard(hands[next], card);
+      trick.push({ seat: next, card });
+
+      const result = playNext(next);
+
+      trick.pop();
+      hands[next] = savedHand;
+
+      if (isDeclarerTurn) {
+        if (result > bestTricks) bestTricks = result;
+        alpha = Math.max(alpha, bestTricks);
+      } else {
+        if (result < bestTricks) bestTricks = result;
+        beta = Math.min(beta, bestTricks);
+      }
+
+      if (beta <= alpha) break;
+    }
+
+    return bestTricks;
+  }
+
+  const lastPlayedSeat = partialTrick[partialTrick.length - 1].seat;
+  return playNext(lastPlayedSeat);
+}
+
+/**
+ * Solve a double-dummy position from a partial play state.
+ *
+ * Given the original deal and the cards played so far (in order), computes
+ * the total tricks the declarer can win with optimal play from both sides
+ * from the current position forward.
+ *
+ * @param deal - the original 52-card deal
+ * @param playedCards - cards played so far, in play order (each has seat + card)
+ * @param trump - trump suit, or null for NT
+ * @param declarer - declarer's seat
+ * @returns total tricks declarer will win (already won + optimal remaining)
+ */
+export function solveFromPosition(
+  deal: Deal,
+  playedCards: { seat: Seat; card: Card }[],
+  trump: Suit | null,
+  declarer: Seat,
+): { totalTricksDeclarer: number; tricksWonSoFar: number; remainingTricks: number } {
+  const hands: Record<Seat, Card[]> = {
+    N: sortCards([...deal.N]),
+    E: sortCards([...deal.E]),
+    S: sortCards([...deal.S]),
+    W: sortCards([...deal.W]),
+  };
+
+  for (const tc of playedCards) {
+    hands[tc.seat] = removeCard(hands[tc.seat], tc.card);
+  }
+
+  let declarerTricks = 0;
+  let defenderTricks = 0;
+  let lastWinner: Seat | null = null;
+
+  const completedTrickCount = Math.floor(playedCards.length / 4);
+  const partialTrickSize = playedCards.length % 4;
+
+  for (let t = 0; t < completedTrickCount; t++) {
+    const trickCards = playedCards.slice(t * 4, t * 4 + 4);
+    const winner = trickWinner(trickCards, trump);
+    if (isNS(winner) === isNS(declarer)) declarerTricks++;
+    else defenderTricks++;
+    lastWinner = winner;
+  }
+
+  const partialTrick = partialTrickSize > 0
+    ? playedCards.slice(completedTrickCount * 4)
+    : [];
+
+  const memo = new Map<string, number>();
+  const remainingFullTricks = 13 - completedTrickCount - (partialTrickSize > 0 ? 1 : 0);
+
+  let optimalTotal: number;
+
+  if (partialTrickSize === 0) {
+    if (remainingFullTricks === 0) {
+      optimalTotal = declarerTricks;
+    } else {
+      const leader = lastWinner ?? nextSeat(declarer);
+      optimalTotal = solveDoubleDummy(hands, trump, declarer, leader, declarerTricks, defenderTricks, remainingFullTricks, -1, 14, memo);
+    }
+  } else {
+    optimalTotal = completePartialTrick(hands, trump, declarer, partialTrick, declarerTricks, defenderTricks, remainingFullTricks, -1, 14, memo);
+  }
+
+  return {
+    totalTricksDeclarer: optimalTotal,
+    tricksWonSoFar: declarerTricks,
+    remainingTricks: optimalTotal - declarerTricks,
+  };
+}
+
 export function parScore(
   deal: Deal,
   trump: Suit | null,
