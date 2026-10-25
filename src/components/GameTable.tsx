@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { VideoTile } from '@/components/VideoTile';
 import { HandDisplay, PlayedCard, CardBackFan, DummyHandDisplay, type HandLayout } from '@/components/CardDisplay';
 import { BiddingPanel, AuctionHistory } from '@/components/BiddingPanel';
+import { BiddingReference } from '@/components/BiddingReference';
 import { ScorePanel, NextHandButton } from '@/components/ScorePanel';
 import { DoubleDummyReview } from '@/components/DoubleDummyReview';
 import { sortHand, dummySeat, isVulnerable } from '@/context/GameContext';
@@ -16,7 +17,7 @@ import { DEFAULT_AVATAR_STYLE, isAvatarStyle, type AvatarStyle } from '@/lib/ava
 import { ProfileSettings } from '@/components/ProfileSettings';
 import { supabase } from '@/lib/supabase';
 import {
-  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap, Settings, History as HistoryIcon,
+  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap, Settings, History as HistoryIcon, BookOpen,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -186,6 +187,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
   const [avatarStyle, setAvatarStyle] = useState<AvatarStyle>(DEFAULT_AVATAR_STYLE);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [animToggleOpen, setAnimToggleOpen] = useState(false);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [fastAnimations, setFastAnimations] = useState(false);
@@ -652,10 +654,18 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
               {phase === 'bidding' && !passedOut && (
                 <div className="flex flex-col items-center gap-2 bg-slate-900/70 backdrop-blur-sm rounded-2xl p-3 border border-slate-700/40 max-h-full overflow-hidden">
-                  <div className="text-center shrink-0">
+                  <div className="text-center shrink-0 flex items-center gap-2">
                     <p className="text-slate-300 text-sm font-medium">
                       {isMyTurn ? 'Your turn to bid' : `Waiting for ${currentSeat} to bid...`}
                     </p>
+                    <button
+                      onClick={() => setGuideOpen(true)}
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-400 bg-emerald-600/10 border border-emerald-500/30 rounded-lg hover:bg-emerald-600/20 transition-colors"
+                      title="Open bidding guide"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Guide</span>
+                    </button>
                   </div>
                   {isMyTurn && <BiddingPanel />}
                   <div className="min-h-0 overflow-y-auto max-h-full">
@@ -815,6 +825,14 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
         </div>
       </div>
       {profileOpen && <ProfileSettings onClose={() => setProfileOpen(false)} />}
+      {guideOpen && (
+        <BiddingReference
+          auction={auction}
+          dealer={dealer}
+          mySeat={mySeat}
+          onClose={() => setGuideOpen(false)}
+        />
+      )}
     </div>
     </>
   );
