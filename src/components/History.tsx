@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { jsonToDeal, sortHand } from '@/lib/dealing';
 import { solveFromPosition } from '@/lib/doubleDummy';
 import type { Deal, Contract, AuctionEntry, PlayState, Seat, Vulnerability, Card, TrickCard, HandScore, Suit } from '@/types/bridge';
-import { SEATS, SUIT_SYMBOLS } from '@/types/bridge';
+import { SEATS, SUIT_SYMBOLS, RANK_VALUES } from '@/types/bridge';
 import { ArrowLeft, Scale, ChevronRight, ChevronLeft, Layers, Compass, Eye } from 'lucide-react';
 import { CardDisplay, HandDisplay } from '@/components/CardDisplay';
 
@@ -469,11 +469,43 @@ function flattenPlayedCards(tricks: TrickCard[][]): TrickCard[] {
   return all;
 }
 
+function nextSeat(seat: Seat): Seat {
+  return SEATS[(SEATS.indexOf(seat) + 1) % SEATS.length];
+}
+
+function trickWinnerForHistory(trick: TrickCard[], trump: Suit | null): Seat {
+  let winner = trick[0];
+  for (const played of trick.slice(1)) {
+    const card = played.card;
+    if (trump && card.suit === trump && winner.card.suit !== trump) {
+      winner = played;
+    } else if (card.suit === winner.card.suit && RANK_VALUES[card.rank] > RANK_VALUES[winner.card.rank]) {
+      winner = played;
+    }
+  }
+  return winner.seat;
+}
+
+function nextPlayerForPosition(playedCards: TrickCard[], trump: Suit | null, openingLeader: Seat | undefined): Seat | null {
+  if (playedCards.length === 0) return openingLeader ?? null;
+  if (playedCards.length % 4 !== 0) return nextSeat(playedCards[playedCards.length - 1].seat);
+  const lastTrick = playedCards.slice(-4);
+  return trickWinnerForHistory(lastTrick, trump);
+}
+
+function legalCardsForPosition(hand: Card[], playedCards: TrickCard[]): Card[] {
+  const currentTrick = playedCards.length % 4 === 0 ? [] : playedCards.slice(-(playedCards.length % 4));
+  const ledSuit = currentTrick[0]?.card.suit;
+  if (!ledSuit) return hand;
+  const followingSuit = hand.filter(card => card.suit === ledSuit);
+  return followingSuit.length > 0 ? followingSuit : hand;
+}
+
 function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () => void }) {
   const [original, setOriginal] = useState<HandDetail | null>(null);
   const [replay, setReplay] = useState<HandDetail | null>(null);
   const [seatNames, setSeatNames] = useState<SeatNames>({ N: 'N', E: 'E', S: 'S', W: 'W' });
-  const [cardIndex, setCardIndex] = useState(0);
+  const [cardIndex, setCardIndex] = useState(-1);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -496,9 +528,9 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
     return Math.max(o, r) * 4;
   }, [original, replay]);
 
-  const currentCardIndex = Math.min(cardIndex, Math.max(0, maxCards - 1));
-  const currentTrickNumber = Math.floor(currentCardIndex / 4);
-  const cardInTrick = currentCardIndex % 4;
+  const currentCardIndex = Math.max(-1, Math.min(cardIndex, Math.max(0, maxCards - 1)));
+  const currentTrickNumber = currentCardIndex >= 0 ? Math.floor(currentCardIndex / 4) : -1;
+  const cardInTrick = currentCardIndex >= 0 ? currentCardIndex % 4 : 0;
 
   const stepBack = useCallback(() => {
     setCardIndex(i => Math.max(0, i - 1));
@@ -549,17 +581,17 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
         <div className="flex items-center justify-center gap-4 mb-4 bg-slate-800/60 rounded-xl border border-slate-700/50 p-3">
           <button
             onClick={stepBack}
-            disabled={currentCardIndex === 0}
+            disabled={currentCardIndex <= -1}
             className="p-2 rounded-lg bg-slate-700 text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-600 transition-colors"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="text-center min-w-[160px]">
             <div className="text-sm text-white font-medium">
-              Trick {currentTrickNumber + 1} · Card {cardInTrick + 1}
+              {currentCardIndex < 0 ? 'Opening lead' : `Trick ${currentTrickNumber + 1} · Card ${cardInTrick + 1}`}
             </div>
             <div className="text-xs text-slate-500">
-              Card {currentCardIndex + 1} / {maxCards}
+              {currentCardIndex < 0 ? `Card 0 / ${maxCards}` : `Card ${currentCardIndex + 1} / ${maxCards}`}
             </div>
           </div>
           <button
@@ -625,7 +657,7 @@ function HandPanel({
   const cardInTrick = cardIndex % 4;
 
   const currentTrickCards = useMemo(() => {
-    if (currentTrickNumber >= tricks.length) return [];
+    if (currentTrickNumber < 0 || currentTrickNumber >= tricks.length) return [];
     const fullTrick = tricks[currentTrickNumber];
     return fullTrick.slice(0, cardInTrick + 1);
   }, [tricks, currentTrickNumber, cardInTrick]);
@@ -652,6 +684,9 @@ function HandPanel({
   const [ddComputing, setDdComputing] = useState(false);
   const ddCacheRef = useRef<Map<number, { totalTricks: number; tricksWonSoFar: number }>>(new Map());
   const ddRunIdRef = useRef(0);
+  const [cardOptions, setCardOptions] = useState<Record<string, { totalTricks: number }>>({});
+  const [cardOptionsComputing, setCardOptionsComputing] = useState(false);
+  const cardOptionsRunRef = useRef(0);
 
   useEffect(() => {
     const playedCount = Math.min(cardIndex + 1, allCards.length);
@@ -689,6 +724,81 @@ function HandPanel({
   }, [cardIndex, allCards, detail.deal, detail.contract.declarer, trumpStrain]);
 
   const tricksNeeded = 6 + detail.contract.level;
+  const playedCardsAtPosition = useMemo(
+    () => allCards.slice(0, Math.min(cardIndex + 1, allCards.length)),
+    [allCards, cardIndex],
+  );
+  const trump: Suit | null = trumpStrain === 'NT' ? null : trumpStrain as Suit;
+  const nextPlayer = nextPlayerForPosition(playedCardsAtPosition, trump, allCards[0]?.seat);
+  const nextPlayerHand = useMemo(
+    () => nextPlayer ? getRemainingHand(nextPlayer) : [],
+    [nextPlayer, playedUpTo, detail.deal, detail.contract.strain],
+  );
+  const nextPlayerLegalCards = useMemo(
+    () => legalCardsForPosition(nextPlayerHand, playedCardsAtPosition),
+    [nextPlayerHand, playedCardsAtPosition],
+  );
+
+  useEffect(() => {
+    const runId = ++cardOptionsRunRef.current;
+    if (!nextPlayer || nextPlayerLegalCards.length === 0) {
+      setCardOptions({});
+      setCardOptionsComputing(false);
+      return;
+    }
+
+    setCardOptions({});
+    setCardOptionsComputing(true);
+    let optionIndex = 0;
+    let cancelled = false;
+
+    const analyzeNextOption = () => {
+      if (cancelled || runId !== cardOptionsRunRef.current) return;
+      const card = nextPlayerLegalCards[optionIndex];
+      if (!card) {
+        setCardOptionsComputing(false);
+        return;
+      }
+
+      const timer = window.setTimeout(() => {
+        try {
+          const result = solveFromPosition(
+            detail.deal,
+            [...playedCardsAtPosition, { seat: nextPlayer, card }],
+            trump,
+            detail.contract.declarer,
+          );
+          if (!cancelled && runId === cardOptionsRunRef.current) {
+            setCardOptions(previous => ({ ...previous, [`${card.rank}${card.suit}`]: { totalTricks: result.totalTricksDeclarer } }));
+          }
+        } finally {
+          optionIndex += 1;
+          analyzeNextOption();
+        }
+      }, 0);
+
+      return () => window.clearTimeout(timer);
+    };
+
+    const cleanup = analyzeNextOption();
+    return () => {
+      cancelled = true;
+      if (cleanup) cleanup();
+    };
+  }, [detail.contract.declarer, detail.deal, nextPlayer, nextPlayerLegalCards, playedCardsAtPosition, trump]);
+
+  const cardBadges: Record<string, string> = {};
+  const cardBadgeClassNames: Record<string, string> = {};
+  for (const [cardKey, option] of Object.entries(cardOptions)) {
+    const difference = option.totalTricks - tricksNeeded;
+    cardBadges[cardKey] = difference === 0 ? '=' : difference > 0 ? `+${difference}` : `${difference}`;
+    cardBadgeClassNames[cardKey] = difference === 0
+      ? 'bg-emerald-600 text-white'
+      : difference > 0
+        ? 'bg-sky-600 text-white'
+        : 'bg-red-600 text-white';
+  }
+
   const ddVerdict = ddResult
     ? (() => {
         const optimal = ddResult.totalTricks;
@@ -717,10 +827,26 @@ function HandPanel({
       <div className="p-4">
         <div className="grid grid-areas-4h grid-cols-1 gap-2">
           <div className="flex justify-center">
-            <HandDisplay hand={getRemainingHand('N')} seat="N" label={seatLabel('N')} cardWidth={36} trumpStrain={trumpStrain} />
+            <HandDisplay
+              hand={getRemainingHand('N')}
+              seat="N"
+              label={seatLabel('N')}
+              cardWidth={36}
+              trumpStrain={trumpStrain}
+              cardBadges={nextPlayer === 'N' ? cardBadges : undefined}
+              cardBadgeClassNames={nextPlayer === 'N' ? cardBadgeClassNames : undefined}
+            />
           </div>
           <div className="flex items-center justify-between gap-2">
-            <HandDisplay hand={getRemainingHand('W')} seat="W" label={seatLabel('W')} cardWidth={36} trumpStrain={trumpStrain} />
+            <HandDisplay
+              hand={getRemainingHand('W')}
+              seat="W"
+              label={seatLabel('W')}
+              cardWidth={36}
+              trumpStrain={trumpStrain}
+              cardBadges={nextPlayer === 'W' ? cardBadges : undefined}
+              cardBadgeClassNames={nextPlayer === 'W' ? cardBadgeClassNames : undefined}
+            />
             <div className="flex-shrink-0">
               {currentTrickCards.length > 0 ? (
                 <TrickDisplay trick={currentTrickCards} seatNames={seatNames} />
@@ -730,10 +856,26 @@ function HandPanel({
                 </div>
               )}
             </div>
-            <HandDisplay hand={getRemainingHand('E')} seat="E" label={seatLabel('E')} cardWidth={36} trumpStrain={trumpStrain} />
+            <HandDisplay
+              hand={getRemainingHand('E')}
+              seat="E"
+              label={seatLabel('E')}
+              cardWidth={36}
+              trumpStrain={trumpStrain}
+              cardBadges={nextPlayer === 'E' ? cardBadges : undefined}
+              cardBadgeClassNames={nextPlayer === 'E' ? cardBadgeClassNames : undefined}
+            />
           </div>
           <div className="flex justify-center">
-            <HandDisplay hand={getRemainingHand('S')} seat="S" label={seatLabel('S')} cardWidth={36} trumpStrain={trumpStrain} />
+            <HandDisplay
+              hand={getRemainingHand('S')}
+              seat="S"
+              label={seatLabel('S')}
+              cardWidth={36}
+              trumpStrain={trumpStrain}
+              cardBadges={nextPlayer === 'S' ? cardBadges : undefined}
+              cardBadgeClassNames={nextPlayer === 'S' ? cardBadgeClassNames : undefined}
+            />
           </div>
         </div>
 
@@ -742,7 +884,9 @@ function HandPanel({
           <div className="flex items-center gap-1.5 mb-2">
             <Eye className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-xs font-medium text-amber-300">Double-Dummy</span>
-            <span className="text-[10px] text-slate-500 ml-auto">optimal play from here</span>
+            <span className="text-[10px] text-slate-500 ml-auto">
+              {nextPlayer ? `next: ${nextPlayer}${cardOptionsComputing ? ' · calculating' : ''}` : 'optimal play from here'}
+            </span>
           </div>
           {ddComputing ? (
             <div className="flex items-center gap-2 text-xs text-slate-400">

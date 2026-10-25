@@ -9,6 +9,8 @@ interface CardDisplayProps {
   disabled?: boolean;
   highlight?: boolean;
   played?: boolean;
+  badge?: string;
+  badgeClassName?: string;
 }
 
 const CARD_WIDTH: Record<NonNullable<CardDisplayProps['size']>, number> = {
@@ -52,7 +54,7 @@ function CardFaceSVG({ card }: { card: Card }) {
   );
 }
 
-export function CardDisplay({ card, size = 'sm', cardWidth, onClick, disabled, highlight }: CardDisplayProps) {
+export function CardDisplay({ card, size = 'sm', cardWidth, onClick, disabled, highlight, badge, badgeClassName = 'bg-emerald-600 text-white' }: CardDisplayProps) {
   const w = cardWidth ?? CARD_WIDTH[size];
   const h = w * 1.4;
   return (
@@ -77,6 +79,11 @@ export function CardDisplay({ card, size = 'sm', cardWidth, onClick, disabled, h
         />
       )}
       <CardFaceSVG card={card} />
+      {badge && (
+        <span className={`absolute -top-2 -right-2 z-30 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold shadow-md ${badgeClassName}`}>
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -108,6 +115,8 @@ interface HandDisplayProps {
   compact?: boolean;
   layout?: HandLayout;
   cardOverlap?: number;
+  cardBadges?: Record<string, string>;
+  cardBadgeClassNames?: Record<string, string>;
 }
 
 export function HandDisplay({
@@ -124,6 +133,8 @@ export function HandDisplay({
   compact = true,
   layout,
   cardOverlap,
+  cardBadges,
+  cardBadgeClassNames,
 }: HandDisplayProps) {
   if (hidden) {
     return (
@@ -169,6 +180,8 @@ export function HandDisplay({
                       onClick={canClick ? () => onCardClick(card) : undefined}
                       disabled={!canClick}
                       highlight={isLegal && !!onCardClick}
+                      badge={cardBadges?.[cardKey]}
+                      badgeClassName={cardBadgeClassNames?.[cardKey]}
                     />
                   </div>
                 );
@@ -194,6 +207,8 @@ export function HandDisplay({
           cardW={cardW}
           onCardClick={onCardClick}
           legalCards={legalCards}
+          cardBadges={cardBadges}
+          cardBadgeClassNames={cardBadgeClassNames}
         />
       ) : (
         <SuitColumnHand
@@ -203,6 +218,8 @@ export function HandDisplay({
           onCardClick={onCardClick}
           legalCards={legalCards}
           overlap={cardOverlap}
+          cardBadges={cardBadges}
+          cardBadgeClassNames={cardBadgeClassNames}
         />
       )}
     </div>
@@ -216,6 +233,8 @@ function SuitRowHand({
   onCardClick,
   legalCards,
   overlap = 0.7,
+  cardBadges,
+  cardBadgeClassNames,
 }: {
   suits: Suit[];
   bySuit: Record<Suit, Card[]>;
@@ -223,6 +242,8 @@ function SuitRowHand({
   onCardClick?: (card: Card) => void;
   legalCards?: Set<string>;
   overlap?: number;
+  cardBadges?: Record<string, string>;
+  cardBadgeClassNames?: Record<string, string>;
 }) {
   const cardH = cardW * 1.4;
   const hOverlap = cardW * overlap;
@@ -256,6 +277,8 @@ function SuitRowHand({
                     onClick={canClick ? () => onCardClick(card) : undefined}
                     disabled={!canClick}
                     highlight={isLegal && !!onCardClick}
+                    badge={cardBadges?.[cardKey]}
+                    badgeClassName={cardBadgeClassNames?.[cardKey]}
                   />
                 </div>
               );
@@ -274,6 +297,8 @@ function SuitColumnHand({
   onCardClick,
   legalCards,
   overlap = 0.78,
+  cardBadges,
+  cardBadgeClassNames,
 }: {
   suits: Suit[];
   bySuit: Record<Suit, Card[]>;
@@ -281,6 +306,8 @@ function SuitColumnHand({
   onCardClick?: (card: Card) => void;
   legalCards?: Set<string>;
   overlap?: number;
+  cardBadges?: Record<string, string>;
+  cardBadgeClassNames?: Record<string, string>;
 }) {
   const cardH = cardW * 1.4;
   const vOverlap = cardH * overlap;
@@ -323,6 +350,8 @@ function SuitColumnHand({
                     onClick={canClick ? () => onCardClick(card) : undefined}
                     disabled={!canClick}
                     highlight={isLegal && !!onCardClick}
+                    badge={cardBadges?.[cardKey]}
+                    badgeClassName={cardBadgeClassNames?.[cardKey]}
                   />
                 </div>
               );
@@ -406,6 +435,8 @@ interface DummyHandDisplayProps {
   trumpStrain?: string;
   layout?: HandLayout;
   cardOverlap?: number;
+  cardBadges?: Record<string, string>;
+  cardBadgeClassNames?: Record<string, string>;
 }
 
 export function DummyHandDisplay({
@@ -417,6 +448,8 @@ export function DummyHandDisplay({
   trumpStrain,
   layout = 'side',
   cardOverlap = layout === 'horizontal' ? 0.68 : 0.7,
+  cardBadges,
+  cardBadgeClassNames,
 }: DummyHandDisplayProps) {
   const suits = suitOrderFor(trumpStrain);
   const bySuit: Record<Suit, Card[]> = { S: [], H: [], D: [], C: [] };
@@ -436,6 +469,8 @@ export function DummyHandDisplay({
           cardOverlap={cardOverlap}
           onCardClick={onCardClick}
           legalCards={legalCards}
+          cardBadges={cardBadges}
+          cardBadgeClassNames={cardBadgeClassNames}
         />
       ) : (
         <SuitRowHand
@@ -445,6 +480,8 @@ export function DummyHandDisplay({
         onCardClick={onCardClick}
           legalCards={legalCards}
           overlap={cardOverlap}
+          cardBadges={cardBadges}
+          cardBadgeClassNames={cardBadgeClassNames}
         />
       )}
     </div>

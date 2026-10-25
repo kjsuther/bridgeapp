@@ -329,7 +329,7 @@ export function solveFromPosition(
     if (remainingFullTricks === 0) {
       optimalTotal = declarerTricks;
     } else {
-      const leader = lastWinner ?? nextSeat(declarer);
+      const leader = lastWinner ?? playedCards[0]?.seat ?? nextSeat(declarer);
       optimalTotal = solveDoubleDummy(hands, trump, declarer, leader, declarerTricks, defenderTricks, remainingFullTricks, -1, 14, memo);
     }
   } else {
