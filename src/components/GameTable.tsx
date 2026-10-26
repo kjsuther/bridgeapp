@@ -740,26 +740,29 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
             </div>
           )}
 
-          {/* Cameras overlay each player's card area; the local feed stays small and unobtrusive. */}
+          {/* Keep every tile mounted: its video element also plays participant audio. */}
           {SEATS.map((seat) => {
             const side = viewSides[seat];
             const isLocal = seatToUserId[seat] === myUserId;
             const isDeclarerCameraForDummy = isDummySeat && contract?.declarer === seat;
-            const isDummyCameraHidden = phase === 'playing' && isDummyRevealed && dummy === seat;
-            if (isDummyCameraHidden) return null;
+            const isRevealedDummyCamera = phase === 'playing' && isDummyRevealed && dummy === seat;
             const isSmallCamera = isLocal || isDeclarerCameraForDummy;
             const cameraPosition = isLocal
               ? 'bottom-3 left-3'
-              : isDeclarerCameraForDummy
-                ? 'bottom-3 right-3'
-                : side === 'top'
-                  ? 'top-3 left-1/2 -translate-x-1/2'
-                  : side === 'left'
-                    ? 'left-3 top-1/2 -translate-y-1/2'
-                    : 'right-3 top-1/2 -translate-y-1/2';
-            const cameraWidth = isSmallCamera
-              ? Math.min(128, w * 0.12, h * 0.16)
-              : Math.min(300, w * 0.23, h * 0.3);
+              : isRevealedDummyCamera
+                ? 'top-3 right-3'
+                : isDeclarerCameraForDummy
+                  ? 'bottom-3 right-3'
+                  : side === 'top'
+                    ? 'top-3 left-1/2 -translate-x-1/2'
+                    : side === 'left'
+                      ? 'left-3 top-1/2 -translate-y-1/2'
+                      : 'right-3 top-1/2 -translate-y-1/2';
+            const cameraWidth = isRevealedDummyCamera
+              ? Math.min(88, w * 0.1, h * 0.12)
+              : isSmallCamera
+                ? Math.min(128, w * 0.12, h * 0.16)
+                : Math.min(300, w * 0.23, h * 0.3);
             const seatName = seatToName[seat] || seat;
             return (
               <div key={`video-${seat}`} className={`pointer-events-auto absolute ${cameraPosition} z-20`}>
