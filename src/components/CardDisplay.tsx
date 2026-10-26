@@ -61,6 +61,7 @@ export function CardDisplay({ card, size = 'sm', cardWidth, onClick, disabled, h
     <button
       onClick={onClick}
       disabled={disabled}
+      aria-label={`${card.rank}${card.suit}${badge ? `, ${badge}` : ''}`}
       className={`
         relative rounded flex-shrink-0 flex items-center justify-center p-0 border-0
         transition-all duration-200 bg-white overflow-hidden shadow-sm
@@ -80,7 +81,7 @@ export function CardDisplay({ card, size = 'sm', cardWidth, onClick, disabled, h
       )}
       <CardFaceSVG card={card} />
       {badge && (
-        <span className={`absolute -top-2 -right-2 z-30 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold shadow-md ${badgeClassName}`}>
+        <span aria-hidden="true" className={`absolute top-0 right-0 z-30 min-w-5 h-5 px-0.5 rounded-full flex items-center justify-center text-[10px] font-bold shadow-md ${badgeClassName}`}>
           {badge}
         </span>
       )}

@@ -75,6 +75,27 @@ a board where only one partnership is vulnerable.
 For a Bolt-managed database, confirm database administration access before
 applying SQL. GitHub source sync alone does not apply this migration.
 
+## Double-dummy comparison
+
+History's board comparison uses DDS through the pinned `bridge-dds` WebAssembly
+package. Each panel loads its engine in a background Web Worker. One solve
+returns all legal-card results; equivalent ranks are expanded so no legal card
+is omitted. Visited positions are cached, obsolete queued requests are dropped,
+and stalled workers time out with a retry option instead of blocking the page.
+
+Dots use declarer's final trick total minus the tricks required by the contract:
+red negative values for undertricks, green `=` for exactly making, and green
+positive values for overtricks. Center cards retain the result immediately after
+that card was played, before any later mistakes. No database migration is needed
+for this comparison change. The separate after-game Analyze Hand panel continues
+to use the existing solver.
+
+`npm test` checks the DDS adapter against independent exhaustive endgames in
+all strains and seat positions, forced plays, equivalent cards, center-card
+values, and background request caching/cancellation/timeout recovery.
+Upstream notices and the Apache 2.0 license are served in `public/dds-notices.txt`
+and `public/dds-license.txt`.
+
 ## Audio behavior
 
 Microphone mute and participant-audio mute are independent controls. Capture
