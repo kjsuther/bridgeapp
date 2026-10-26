@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { createLiveRefresh } from '@/lib/liveRefresh';
 import { useAuth } from '@/context/AuthContext';
 import type { Seat, TablePlayer } from '@/types/bridge';
 import { SEATS } from '@/types/bridge';
@@ -110,14 +111,17 @@ export function Lobby({ onJoinTable, onShowHistory, onShowAdmin }: LobbyProps) {
   }, [profile, onJoinTable]);
 
   useEffect(() => {
-    loadTables();
+    const live = createLiveRefresh(loadTables);
+    void live.refresh();
 
     const channel = supabase.channel('lobby-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => loadTables())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'table_players' }, () => loadTables())
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, live.refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'table_players' }, live.refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, live.refresh)
+      .subscribe(live.onStatus);
 
     return () => {
+      live.dispose();
       supabase.removeChannel(channel);
     };
   }, [loadTables]);

@@ -18,6 +18,7 @@ interface PeerEntry {
   pendingCandidates: RTCIceCandidateInit[];
   remoteDescriptionSet: boolean;
   retryCount: number;
+  signalQueue: Promise<void>;
 }
 
 interface UseWebRTCOptions {
@@ -70,30 +71,36 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
 
-  const getLocalStream = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 320, height: 240 },
-        audio: SPEECH_AUDIO_CONSTRAINTS,
-      });
+  const getLocalStream = useCallback(async (isCancelled: () => boolean) => {
+    const accept = (stream: MediaStream) => {
+      if (isCancelled()) {
+        stream.getTracks().forEach(track => track.stop());
+        return false;
+      }
       localStreamRef.current = stream;
       setLocalStream(stream);
       setStatus('connected');
+      return true;
+    };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 240, frameRate: { ideal: 15, max: 20 } },
+        audio: SPEECH_AUDIO_CONSTRAINTS,
+      });
+      accept(stream);
       return stream;
     } catch {
+      if (isCancelled()) return new MediaStream();
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: false,
           audio: SPEECH_AUDIO_CONSTRAINTS,
         });
-        localStreamRef.current = stream;
-        setLocalStream(stream);
-        setStatus('connected');
+        accept(stream);
         return stream;
       } catch {
         const stream = new MediaStream();
-        localStreamRef.current = stream;
-        setLocalStream(stream);
+        if (!accept(stream)) return stream;
         setVideoEnabled(false);
         setAudioEnabled(false);
         setError('Camera and microphone access denied. You can still watch and listen.');
@@ -113,6 +120,8 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
   }, []);
 
   const createPeer = useCallback((peerId: string): RTCPeerConnection => {
+    const existing = peersRef.current.get(peerId);
+    if (existing) return existing.pc;
     const pc = new RTCPeerConnection({ iceServers: getIceServers() });
 
     const entry: PeerEntry = {
@@ -126,6 +135,7 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
       pendingCandidates: [],
       remoteDescriptionSet: false,
       retryCount: 0,
+      signalQueue: Promise.resolve(),
     };
     peersRef.current.set(peerId, entry);
 
@@ -138,7 +148,11 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     }
 
     pc.ontrack = (event) => {
-      const [stream] = event.streams;
+      if (peersRef.current.get(peerId) !== entry) return;
+      const stream = event.streams[0] ?? entry.stream ?? new MediaStream();
+      if (!stream.getTracks().some(track => track.id === event.track.id)) {
+        stream.addTrack(event.track);
+      }
       entry.stream = stream;
       setPeerStreams((prev) => {
         const next = new Map(prev);
@@ -157,38 +171,41 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
       }
     };
 
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'failed') {
-        if (entry.retryCount < MAX_RETRIES) {
+    const recover = () => {
+      if (peersRef.current.get(peerId) !== entry) return;
+      if (pc.connectionState === 'connected') entry.retryCount = 0;
+      if (pc.connectionState === 'failed' || pc.iceConnectionState === 'failed') {
+        // Only one side restarts, avoiding simultaneous restart offers.
+        if (userIdRef.current < peerId && entry.retryCount < MAX_RETRIES) {
           entry.retryCount++;
           pc.restartIce();
         }
       }
     };
-
+    pc.oniceconnectionstatechange = recover;
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed') {
-        if (entry.retryCount < MAX_RETRIES) {
-          entry.retryCount++;
-          pc.restartIce();
-        }
-      }
+      if (pc.connectionState === 'connected') entry.retryCount = 0;
     };
 
-    pc.onnegotiationneeded = async () => {
-      try {
-        entry.makingOffer = true;
-        await pc.setLocalDescription();
-        channelRef.current?.send({
-          type: 'broadcast',
-          event: 'signal',
-          payload: { kind: 'offer', target: peerId, from: userIdRef.current, data: pc.localDescription },
-        });
-      } catch {
-        // A later negotiationneeded event or ICE restart can recover.
-      } finally {
-        entry.makingOffer = false;
-      }
+    pc.onnegotiationneeded = () => {
+      // One initial caller per pair prevents a burst of six competing offers
+      // when four people arrive together. Keep perfect negotiation for retries.
+      if (!pc.remoteDescription && userIdRef.current > peerId) return;
+      entry.signalQueue = entry.signalQueue.then(async () => {
+        if (peersRef.current.get(peerId) !== entry || pc.signalingState !== 'stable') return;
+        try {
+          entry.makingOffer = true;
+          await pc.setLocalDescription();
+          await channelRef.current?.send({
+            type: 'broadcast', event: 'signal',
+            payload: { kind: 'offer', target: peerId, from: userIdRef.current, data: pc.localDescription },
+          });
+        } catch (error) {
+          console.warn('Video negotiation failed', error);
+        } finally {
+          entry.makingOffer = false;
+        }
+      });
     };
 
     return pc;
@@ -204,59 +221,59 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     if (msg.from === userIdRef.current) return;
 
     const fromId = msg.from;
-    let entry = peersRef.current.get(fromId);
-
-    if (!entry) {
-      const pc = createPeer(fromId);
-      entry = peersRef.current.get(fromId)!;
-      void pc;
-    }
+    if (!peersRef.current.has(fromId)) createPeer(fromId);
+    const entry = peersRef.current.get(fromId)!;
 
     const pc = entry.pc;
+    const currentEntry = entry;
+    entry.signalQueue = entry.signalQueue.then(async () => {
+      if (peersRef.current.get(fromId) !== currentEntry || pc.signalingState === 'closed') return;
+      try {
+        if (msg.kind === 'offer') {
+          const description = msg.data as RTCSessionDescriptionInit;
+          const readyForOffer = !entry.makingOffer &&
+            (pc.signalingState === 'stable' || entry.isSettingRemoteAnswerPending);
+          const collision = !readyForOffer;
+          entry.ignoreOffer = !entry.polite && collision;
 
-    try {
-      if (msg.kind === 'offer') {
-        const description = msg.data as RTCSessionDescriptionInit;
-        const readyForOffer = !entry.makingOffer &&
-          (pc.signalingState === 'stable' || entry.isSettingRemoteAnswerPending);
-        const collision = !readyForOffer;
-        entry.ignoreOffer = !entry.polite && collision;
+          if (entry.ignoreOffer) return;
 
-        if (entry.ignoreOffer) return;
-
-        await pc.setRemoteDescription(description);
-        entry.remoteDescriptionSet = true;
-        flushPendingCandidates(entry);
-
-        await pc.setLocalDescription();
-        channelRef.current?.send({
-          type: 'broadcast',
-          event: 'signal',
-          payload: { kind: 'answer', target: fromId, from: userIdRef.current, data: pc.localDescription },
-        });
-      } else if (msg.kind === 'answer') {
-        const description = msg.data as RTCSessionDescriptionInit;
-        if ((pc.signalingState as string) === 'have-local-offer') {
-          entry.isSettingRemoteAnswerPending = true;
-          try {
-            await pc.setRemoteDescription(description);
-          } finally {
-            entry.isSettingRemoteAnswerPending = false;
-          }
+          await pc.setRemoteDescription(description);
           entry.remoteDescriptionSet = true;
           flushPendingCandidates(entry);
+
+          await pc.setLocalDescription();
+          channelRef.current?.send({
+            type: 'broadcast',
+            event: 'signal',
+            payload: { kind: 'answer', target: fromId, from: userIdRef.current, data: pc.localDescription },
+          });
+        } else if (msg.kind === 'answer') {
+          const description = msg.data as RTCSessionDescriptionInit;
+          if ((pc.signalingState as string) === 'have-local-offer') {
+            entry.isSettingRemoteAnswerPending = true;
+            try {
+              await pc.setRemoteDescription(description);
+            } finally {
+              entry.isSettingRemoteAnswerPending = false;
+            }
+            entry.remoteDescriptionSet = true;
+            flushPendingCandidates(entry);
+          }
+        } else if (msg.kind === 'ice') {
+          if (entry.ignoreOffer) return;
+          const candidate = msg.data as RTCIceCandidateInit;
+          if (entry.remoteDescriptionSet) {
+            await pc.addIceCandidate(candidate);
+          } else {
+            entry.pendingCandidates.push(candidate);
+          }
         }
-      } else if (msg.kind === 'ice') {
-        const candidate = msg.data as RTCIceCandidateInit;
-        if (entry.remoteDescriptionSet) {
-          await pc.addIceCandidate(candidate);
-        } else {
-          entry.pendingCandidates.push(candidate);
-        }
+      } catch (error) {
+        if (!entry.ignoreOffer) console.warn('Video handshake failed', error);
       }
-    } catch {
-      // ICE/handshake errors are recoverable
-    }
+    });
+    await entry.signalQueue;
   }, [createPeer, flushPendingCandidates]);
 
   const announcePresence = useCallback(async () => {
@@ -271,40 +288,81 @@ export function useWebRTC({ tableId, userId, enabled }: UseWebRTCOptions) {
     if (!enabled || !tableId || !userId) return;
 
     let cancelled = false;
+    let helloTimer: ReturnType<typeof setInterval> | undefined;
+    const presenceSessions = new Map<string, string>();
+    const sessionId = crypto.randomUUID();
     const peers = peersRef.current;
 
     (async () => {
-      await getLocalStream();
+      await getLocalStream(() => cancelled);
       if (cancelled) return;
 
       const channel = supabase.channel(`table-${tableId}-webrtc`, {
-        config: { broadcast: { self: false } },
+        config: { broadcast: { self: false }, presence: { key: userId } },
       });
 
       channelRef.current = channel;
 
+      channel.on('presence', { event: 'sync' }, () => {
+        if (cancelled) return;
+        const state = channel.presenceState<{ sessionId?: string }>();
+        const removePeer = (peerId: string) => {
+          peers.get(peerId)?.pc.close();
+          peers.delete(peerId);
+          setPeerStreams(prev => {
+            const next = new Map(prev);
+            next.delete(peerId);
+            return next;
+          });
+        };
+        for (const peerId of presenceSessions.keys()) {
+          if (!state[peerId]) {
+            removePeer(peerId);
+            presenceSessions.delete(peerId);
+          }
+        }
+        for (const [peerId, sessions] of Object.entries(state)) {
+          if (peerId === userId || sessions.length === 0) continue;
+          const peerSession = sessions[sessions.length - 1].sessionId ?? '';
+          const previous = presenceSessions.get(peerId);
+          if (previous !== undefined && previous !== peerSession) removePeer(peerId);
+          presenceSessions.set(peerId, peerSession);
+          createPeer(peerId);
+        }
+      });
+
       channel.on('broadcast', { event: 'signal' }, (payload) => {
+        if (cancelled) return;
         const msg = (payload.payload as { kind: string; target: string; from: string; data: unknown });
         handleMessage(msg);
       });
 
       channel.on('broadcast', { event: 'hello' }, (payload) => {
         const msg = payload.payload as { from: string };
-        if (msg.from === userIdRef.current) return;
+        if (cancelled || msg.from === userIdRef.current) return;
         if (!peersRef.current.has(msg.from)) {
           createPeer(msg.from);
         }
       });
 
       channel.subscribe(async (status) => {
+        if (cancelled) return;
         if (status === 'SUBSCRIBED') {
+          await channel.track({ sessionId });
+          if (cancelled) return;
           await announcePresence();
+          if (cancelled) return;
+          if (!helloTimer) helloTimer = setInterval(() => { void announcePresence(); }, 5000);
+          setError(null);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setError('Video connection interrupted. Reconnecting...');
         }
       });
     })();
 
     return () => {
       cancelled = true;
+      clearInterval(helloTimer);
       peers.forEach((entry) => {
         entry.pc.close();
       });
