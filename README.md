@@ -103,3 +103,22 @@ requests echo cancellation, noise suppression, automatic gain control, and
 mono speech audio when supported by the browser. When several players are in
 the same physical room, use headphones or leave only one device's microphone
 and speakers enabled.
+
+## Live player information and camera startup
+
+Apply `supabase/migrations/20261026010000_016_realtime_profile_updates.sql`
+in the Supabase SQL Editor when deploying the player-sync update. It adds
+profiles to the Realtime publication without changing existing access policies.
+Lobby, seating, and game views listen for profile edits and reload after joining
+or reconnecting. A visible-tab check every 15 seconds and a focus check recover
+missed events. These checks update player information without restarting cameras.
+
+Camera discovery uses Realtime Presence, with a single initial caller per pair
+and serialized offer/answer/ICE processing. Refreshed sessions replace stale peer
+connections, and cancelled camera requests release their tracks. Capture targets
+15 frames per second (maximum 20) to reduce four-player encoding load. TURN
+configuration remains necessary on networks that cannot connect directly.
+
+After publishing, all participants should reload once to use the new connection
+protocol. Automated tests simulate four-player joins and refreshes; a live
+four-person test across the participants' networks is still required.

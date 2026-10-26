@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
+import { createLiveRefresh } from '@/lib/liveRefresh';
 import { useAuth } from '@/context/AuthContext';
 import type {
   Seat, Deal, AuctionEntry, Bid, Contract, PlayState,
@@ -128,7 +129,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
   // Load players and determine my seat
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+    const loadPlayers = async () => {
       const { data: tablePlayers } = await supabase
         .from('table_players')
         .select('user_id, seat')
@@ -154,15 +156,27 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
           avatar_url: profMap[p.user_id]?.avatar_url ?? null,
         }));
 
+        if (cancelled) return;
         setPlayers(seatPlayers);
 
         const myAssignment = seatPlayers.find((p) => p.user_id === profileRef.current?.id);
-        if (myAssignment) {
-          setMySeat(myAssignment.seat);
-        }
+        setMySeat(myAssignment?.seat ?? null);
       }
-    })();
-  }, [tableId]);
+    };
+    const live = createLiveRefresh(loadPlayers);
+    void live.refresh();
+    const channel = supabase.channel(`game-players-${tableId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, live.refresh)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'table_players', filter: `table_id=eq.${tableId}`,
+      }, live.refresh)
+      .subscribe(live.onStatus);
+    return () => {
+      cancelled = true;
+      live.dispose();
+      void supabase.removeChannel(channel);
+    };
+  }, [tableId, profile?.id]);
 
   // Load game state
   const loadGameState = useCallback(async () => {

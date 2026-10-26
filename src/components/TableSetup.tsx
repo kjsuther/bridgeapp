@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { createLiveRefresh } from '@/lib/liveRefresh';
 import { useAuth } from '@/context/AuthContext';
 import type { Seat } from '@/types/bridge';
 import { SEATS, SUIT_SYMBOLS } from '@/types/bridge';
@@ -106,24 +107,16 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
       });
       setSeats(seatMap);
     }
+    const { data: profileOptions } = await supabase
+      .from('profiles')
+      .select('id, display_name, email')
+      .order('display_name', { ascending: true });
+    if (profileOptions) setAllProfiles(profileOptions as ProfileOption[]);
   }, [tableId, onGameStart]);
 
-  // Load all profiles for the dropdown
   useEffect(() => {
-    (async () => {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, display_name, email')
-        .order('display_name', { ascending: true });
-
-      if (profiles) {
-        setAllProfiles(profiles as ProfileOption[]);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    loadState();
+    const live = createLiveRefresh(loadState);
+    void live.refresh();
 
     const channel = supabase.channel(`table-setup-${tableId}`)
       .on('postgres_changes', {
@@ -131,22 +124,24 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
         schema: 'public',
         table: 'table_players',
         filter: `table_id=eq.${tableId}`,
-      }, () => loadState())
+      }, live.refresh)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'tables',
         filter: `id=eq.${tableId}`,
-      }, () => loadState())
+      }, live.refresh)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'games',
         filter: `table_id=eq.${tableId}`,
-      }, () => loadState())
-      .subscribe();
+      }, live.refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, live.refresh)
+      .subscribe(live.onStatus);
 
     return () => {
+      live.dispose();
       supabase.removeChannel(channel);
     };
   }, [tableId, loadState]);
