@@ -14,7 +14,6 @@
 
 import type { Contract, Vulnerability } from '@/types/bridge';
 import { scoreHand } from '@/lib/scoring';
-import { sideOfSeat } from '@/types/bridge';
 
 // WBF IMP conversion table: net point difference -> IMPs
 // Source: World Bridge Federation IMP scale
@@ -82,16 +81,19 @@ export function teamScore(
  *
  * @param originalContract - contract result from the original playing
  * @param replayContract - contract result from the replay playing
- * @param vulnerability - vulnerability (same for both playings of the same deal)
+ * @param vulnerability - original hand's vulnerability
+ * @param replayVulnerability - replay's stored vulnerability; defaults to the
+ * original value for legacy replays that did not rotate vulnerability
  * @returns net IMPs from Team A's perspective (positive = Team A wins)
  */
 export function computeImpResult(
   originalContract: Contract,
   replayContract: Contract,
   vulnerability: Vulnerability,
+  replayVulnerability: Vulnerability = vulnerability,
 ): number {
   const originalTeamA = teamScore(originalContract, vulnerability);
-  const replayTeamA = teamScore(replayContract, vulnerability);
+  const replayTeamA = teamScore(replayContract, replayVulnerability);
   const netPoints = originalTeamA + replayTeamA;
   return pointsToImps(netPoints);
 }

@@ -53,6 +53,28 @@ client. It:
 Apply the migration before deploying the matching frontend. Existing hands are
 migrated automatically and their legacy shared deal payload is cleared.
 
+## Replay rotation deployment
+
+Replays rotate the original board one seat clockwise: N's cards go to E,
+E's to S, S's to W, and W's to N. Dealer and vulnerability follow the cards.
+This exchanges partnerships while preserving bidding order and opening lead.
+
+Apply `supabase/migrations/20261025130000_015_rotate_replay_board_clockwise.sql`
+to the existing database **before** deploying this frontend. The function
+derives replay dealer and vulnerability from the original hand, rather than
+trusting client parameters. Finish active replay hands before rollout and
+have every player refresh onto the new frontend before starting another.
+Earlier hands and recorded scores are not rewritten by the migration.
+
+`npm test` includes replay order/scoring tests and runs the actual SQL function
+in embedded PostgreSQL (PGlite) with a minimal schema. It does not verify the
+full migration chain or Supabase authentication and RLS. Before live rollout,
+verify a complete original/replay pair with four players in staging, including
+a board where only one partnership is vulnerable.
+
+For a Bolt-managed database, confirm database administration access before
+applying SQL. GitHub source sync alone does not apply this migration.
+
 ## Audio behavior
 
 Microphone mute and participant-audio mute are independent controls. Capture
