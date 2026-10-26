@@ -1,12 +1,12 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { jsonToDeal, sortHand } from '@/lib/dealing';
-import { solveFromPosition } from '@/lib/doubleDummy';
-import type { Deal, Contract, AuctionEntry, PlayState, Seat, Vulnerability, Card, TrickCard, HandScore, Suit } from '@/types/bridge';
-import { SEATS, SUIT_SYMBOLS, RANK_VALUES } from '@/types/bridge';
-import { ArrowLeft, Scale, ChevronRight, ChevronLeft, Layers, Compass, Eye } from 'lucide-react';
-import { CardDisplay, HandDisplay } from '@/components/CardDisplay';
+import { jsonToDeal } from '@/lib/dealing';
+import { ComparisonHandPanel } from './ComparisonHandPanel';
+import type { HandDetail, SeatNames } from '@/types/review';
+import type { Contract, AuctionEntry, PlayState, Seat, Vulnerability, HandScore } from '@/types/bridge';
+import { SUIT_SYMBOLS } from '@/types/bridge';
+import { ArrowLeft, Scale, ChevronRight, ChevronLeft, Layers, Compass } from 'lucide-react';
 
 interface HistoryProps {
   onBack: () => void;
@@ -39,19 +39,6 @@ interface TableSummary {
   totalImpsA: number;
   totalImpsB: number;
 }
-
-interface HandDetail {
-  handId: string;
-  deal: Deal;
-  auction: AuctionEntry[];
-  contract: Contract;
-  score: HandScore;
-  playState: PlayState;
-  vulnerability: Vulnerability;
-  dealer: Seat;
-}
-
-type SeatNames = Record<Seat, string>;
 
 export function History({ onBack, tableId, gameId }: HistoryProps) {
   const { profile } = useAuth();
@@ -458,49 +445,6 @@ function TableHistory({
   );
 }
 
-/** Flatten completed tricks into a single ordered list of cards as they were played. */
-function flattenPlayedCards(tricks: TrickCard[][]): TrickCard[] {
-  const all: TrickCard[] = [];
-  for (const trick of tricks) {
-    for (const tc of trick) {
-      all.push(tc);
-    }
-  }
-  return all;
-}
-
-function nextSeat(seat: Seat): Seat {
-  return SEATS[(SEATS.indexOf(seat) + 1) % SEATS.length];
-}
-
-function trickWinnerForHistory(trick: TrickCard[], trump: Suit | null): Seat {
-  let winner = trick[0];
-  for (const played of trick.slice(1)) {
-    const card = played.card;
-    if (trump && card.suit === trump && winner.card.suit !== trump) {
-      winner = played;
-    } else if (card.suit === winner.card.suit && RANK_VALUES[card.rank] > RANK_VALUES[winner.card.rank]) {
-      winner = played;
-    }
-  }
-  return winner.seat;
-}
-
-function nextPlayerForPosition(playedCards: TrickCard[], trump: Suit | null, openingLeader: Seat | undefined): Seat | null {
-  if (playedCards.length === 0) return openingLeader ?? null;
-  if (playedCards.length % 4 !== 0) return nextSeat(playedCards[playedCards.length - 1].seat);
-  const lastTrick = playedCards.slice(-4);
-  return trickWinnerForHistory(lastTrick, trump);
-}
-
-function legalCardsForPosition(hand: Card[], playedCards: TrickCard[]): Card[] {
-  const currentTrick = playedCards.length % 4 === 0 ? [] : playedCards.slice(-(playedCards.length % 4));
-  const ledSuit = currentTrick[0]?.card.suit;
-  if (!ledSuit) return hand;
-  const followingSuit = hand.filter(card => card.suit === ledSuit);
-  return followingSuit.length > 0 ? followingSuit : hand;
-}
-
 function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () => void }) {
   const [original, setOriginal] = useState<HandDetail | null>(null);
   const [replay, setReplay] = useState<HandDetail | null>(null);
@@ -533,7 +477,7 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
   const cardInTrick = currentCardIndex >= 0 ? currentCardIndex % 4 : 0;
 
   const stepBack = useCallback(() => {
-    setCardIndex(i => Math.max(0, i - 1));
+    setCardIndex(i => Math.max(-1, i - 1));
   }, []);
 
   const stepForward = useCallback(() => {
@@ -605,7 +549,7 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
 
         {/* Side-by-side comparison */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <HandPanel
+          <ComparisonHandPanel
             title="Original"
             subtitle="N+S vs E+W (normal seats)"
             detail={original}
@@ -613,7 +557,7 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
             accent="emerald"
             seatNames={seatNames}
           />
-          <HandPanel
+          <ComparisonHandPanel
             title="Replay (Swapped)"
             subtitle="N+S swapped with E+W"
             detail={replay}
@@ -625,342 +569,6 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
       </div>
     </div>
   );
-}
-
-function HandPanel({
-  title, subtitle, detail, cardIndex, accent, seatNames,
-}: {
-  title: string;
-  subtitle: string;
-  detail: HandDetail;
-  cardIndex: number;
-  accent: 'emerald' | 'blue';
-  seatNames: SeatNames;
-}) {
-  const accentText = accent === 'emerald' ? 'text-emerald-400' : 'text-blue-400';
-  const accentBorder = accent === 'emerald' ? 'border-emerald-700/40' : 'border-blue-700/40';
-  const accentBg = accent === 'emerald' ? 'bg-emerald-950/30' : 'bg-blue-950/30';
-
-  const tricks = detail.playState.completedTricks;
-  const allCards = useMemo(() => flattenPlayedCards(tricks), [tricks]);
-
-  const playedUpTo = useMemo(() => {
-    const played: Record<Seat, Card[]> = { N: [], E: [], S: [], W: [] };
-    for (let i = 0; i <= cardIndex && i < allCards.length; i++) {
-      const tc = allCards[i];
-      played[tc.seat].push(tc.card);
-    }
-    return played;
-  }, [allCards, cardIndex]);
-
-  const currentTrickNumber = Math.floor(cardIndex / 4);
-  const cardInTrick = cardIndex % 4;
-
-  const currentTrickCards = useMemo(() => {
-    if (currentTrickNumber < 0 || currentTrickNumber >= tricks.length) return [];
-    const fullTrick = tricks[currentTrickNumber];
-    return fullTrick.slice(0, cardInTrick + 1);
-  }, [tricks, currentTrickNumber, cardInTrick]);
-
-  const getRemainingHand = (seat: Seat): Card[] => {
-    const full = sortHand(detail.deal[seat], detail.contract.strain);
-    const played = playedUpTo[seat] ?? [];
-    return full.filter(c => !played.some(p => p.suit === c.suit && p.rank === c.rank));
-  };
-
-  const trumpStrain = detail.contract.strain;
-
-  const seatLabel = (seat: Seat): string => {
-    const name = seatNames[seat] ?? seat;
-    return `${seat} · ${name}`;
-  };
-
-  // Double-dummy analysis: always-on, computed asynchronously with caching.
-  const [ddResult, setDdResult] = useState<{
-    totalTricks: number;
-    tricksWonSoFar: number;
-    cardIndex: number;
-  } | null>(null);
-  const [ddComputing, setDdComputing] = useState(false);
-  const ddCacheRef = useRef<Map<number, { totalTricks: number; tricksWonSoFar: number }>>(new Map());
-  const ddRunIdRef = useRef(0);
-  const [cardOptions, setCardOptions] = useState<Record<string, { totalTricks: number }>>({});
-  const [cardOptionsComputing, setCardOptionsComputing] = useState(false);
-  const cardOptionsRunRef = useRef(0);
-
-  useEffect(() => {
-    const playedCount = Math.min(cardIndex + 1, allCards.length);
-    if (playedCount === 0) {
-      setDdResult(null);
-      return;
-    }
-
-    const cached = ddCacheRef.current.get(cardIndex);
-    if (cached) {
-      setDdResult({ totalTricks: cached.totalTricks, tricksWonSoFar: cached.tricksWonSoFar, cardIndex });
-      return;
-    }
-
-    const runId = ++ddRunIdRef.current;
-    setDdComputing(true);
-
-    // Defer to next tick so the UI can update before the synchronous solver runs.
-    const timer = setTimeout(() => {
-      const playedCards = allCards.slice(0, playedCount).map(tc => ({ seat: tc.seat, card: tc.card }));
-      const trump: Suit | null = trumpStrain === 'NT' ? null : (trumpStrain as Suit);
-      try {
-        const result = solveFromPosition(detail.deal, playedCards, trump, detail.contract.declarer);
-        if (runId !== ddRunIdRef.current) return;
-        ddCacheRef.current.set(cardIndex, { totalTricks: result.totalTricksDeclarer, tricksWonSoFar: result.tricksWonSoFar });
-        setDdResult({ totalTricks: result.totalTricksDeclarer, tricksWonSoFar: result.tricksWonSoFar, cardIndex });
-      } catch {
-        if (runId !== ddRunIdRef.current) return;
-        setDdResult(null);
-      }
-      setDdComputing(false);
-    }, 30);
-
-    return () => clearTimeout(timer);
-  }, [cardIndex, allCards, detail.deal, detail.contract.declarer, trumpStrain]);
-
-  const tricksNeeded = 6 + detail.contract.level;
-  const playedCardsAtPosition = useMemo(
-    () => allCards.slice(0, Math.min(cardIndex + 1, allCards.length)),
-    [allCards, cardIndex],
-  );
-  const trump: Suit | null = trumpStrain === 'NT' ? null : trumpStrain as Suit;
-  const nextPlayer = nextPlayerForPosition(playedCardsAtPosition, trump, allCards[0]?.seat);
-  const nextPlayerHand = useMemo(
-    () => nextPlayer ? getRemainingHand(nextPlayer) : [],
-    [nextPlayer, playedUpTo, detail.deal, detail.contract.strain],
-  );
-  const nextPlayerLegalCards = useMemo(
-    () => legalCardsForPosition(nextPlayerHand, playedCardsAtPosition),
-    [nextPlayerHand, playedCardsAtPosition],
-  );
-
-  useEffect(() => {
-    const runId = ++cardOptionsRunRef.current;
-    if (!nextPlayer || nextPlayerLegalCards.length === 0) {
-      setCardOptions({});
-      setCardOptionsComputing(false);
-      return;
-    }
-
-    setCardOptions({});
-    setCardOptionsComputing(true);
-    let optionIndex = 0;
-    let cancelled = false;
-
-    const analyzeNextOption = () => {
-      if (cancelled || runId !== cardOptionsRunRef.current) return;
-      const card = nextPlayerLegalCards[optionIndex];
-      if (!card) {
-        setCardOptionsComputing(false);
-        return;
-      }
-
-      const timer = window.setTimeout(() => {
-        try {
-          const result = solveFromPosition(
-            detail.deal,
-            [...playedCardsAtPosition, { seat: nextPlayer, card }],
-            trump,
-            detail.contract.declarer,
-          );
-          if (!cancelled && runId === cardOptionsRunRef.current) {
-            setCardOptions(previous => ({ ...previous, [`${card.rank}${card.suit}`]: { totalTricks: result.totalTricksDeclarer } }));
-          }
-        } finally {
-          optionIndex += 1;
-          analyzeNextOption();
-        }
-      }, 0);
-
-      return () => window.clearTimeout(timer);
-    };
-
-    const cleanup = analyzeNextOption();
-    return () => {
-      cancelled = true;
-      if (cleanup) cleanup();
-    };
-  }, [detail.contract.declarer, detail.deal, nextPlayer, nextPlayerLegalCards, playedCardsAtPosition, trump]);
-
-  const cardBadges: Record<string, string> = {};
-  const cardBadgeClassNames: Record<string, string> = {};
-  for (const [cardKey, option] of Object.entries(cardOptions)) {
-    const difference = option.totalTricks - tricksNeeded;
-    cardBadges[cardKey] = difference === 0 ? '=' : difference > 0 ? `+${difference}` : `${difference}`;
-    cardBadgeClassNames[cardKey] = difference === 0
-      ? 'bg-emerald-600 text-white'
-      : difference > 0
-        ? 'bg-sky-600 text-white'
-        : 'bg-red-600 text-white';
-  }
-
-  const ddVerdict = ddResult
-    ? (() => {
-        const optimal = ddResult.totalTricks;
-        const diff = optimal - tricksNeeded;
-        if (diff > 0) return { text: `+${diff} overtrick${diff !== 1 ? 's' : ''} possible`, color: 'text-emerald-400' };
-        if (diff === 0) return { text: 'Contract makes exactly', color: 'text-amber-300' };
-        return { text: `Down ${Math.abs(diff)} with best play`, color: 'text-blue-400' };
-      })()
-    : null;
-
-  return (
-    <div className={`rounded-xl border ${accentBorder} ${accentBg} backdrop-blur overflow-hidden`}>
-      <div className="px-4 py-3 border-b border-slate-700/40">
-        <div className="flex items-center justify-between">
-          <h3 className={`text-sm font-bold ${accentText}`}>{title}</h3>
-          <span className="text-xs text-slate-500">{subtitle}</span>
-        </div>
-        <div className="mt-2 flex items-center gap-3 text-xs">
-          <span className="text-slate-300 font-medium">
-            {contractText(detail.contract)}
-          </span>
-          <span className="text-slate-500">{detail.score.summary}</span>
-        </div>
-      </div>
-
-      <div className="p-4">
-        <div className="grid grid-areas-4h grid-cols-1 gap-2">
-          <div className="flex justify-center">
-            <HandDisplay
-              hand={getRemainingHand('N')}
-              seat="N"
-              label={seatLabel('N')}
-              cardWidth={36}
-              trumpStrain={trumpStrain}
-              cardBadges={nextPlayer === 'N' ? cardBadges : undefined}
-              cardBadgeClassNames={nextPlayer === 'N' ? cardBadgeClassNames : undefined}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <HandDisplay
-              hand={getRemainingHand('W')}
-              seat="W"
-              label={seatLabel('W')}
-              cardWidth={36}
-              trumpStrain={trumpStrain}
-              cardBadges={nextPlayer === 'W' ? cardBadges : undefined}
-              cardBadgeClassNames={nextPlayer === 'W' ? cardBadgeClassNames : undefined}
-            />
-            <div className="flex-shrink-0">
-              {currentTrickCards.length > 0 ? (
-                <TrickDisplay trick={currentTrickCards} seatNames={seatNames} />
-              ) : (
-                <div className="w-24 h-24 flex items-center justify-center text-xs text-slate-600">
-                  {currentTrickNumber >= tricks.length ? 'Complete' : '—'}
-                </div>
-              )}
-            </div>
-            <HandDisplay
-              hand={getRemainingHand('E')}
-              seat="E"
-              label={seatLabel('E')}
-              cardWidth={36}
-              trumpStrain={trumpStrain}
-              cardBadges={nextPlayer === 'E' ? cardBadges : undefined}
-              cardBadgeClassNames={nextPlayer === 'E' ? cardBadgeClassNames : undefined}
-            />
-          </div>
-          <div className="flex justify-center">
-            <HandDisplay
-              hand={getRemainingHand('S')}
-              seat="S"
-              label={seatLabel('S')}
-              cardWidth={36}
-              trumpStrain={trumpStrain}
-              cardBadges={nextPlayer === 'S' ? cardBadges : undefined}
-              cardBadgeClassNames={nextPlayer === 'S' ? cardBadgeClassNames : undefined}
-            />
-          </div>
-        </div>
-
-        {/* Always-on double-dummy analysis for the current position */}
-        <div className="mt-3 bg-slate-900/50 border border-amber-800/30 rounded-lg p-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Eye className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-xs font-medium text-amber-300">Double-Dummy</span>
-            <span className="text-[10px] text-slate-500 ml-auto">
-              {nextPlayer ? `next: ${nextPlayer}${cardOptionsComputing ? ' · calculating' : ''}` : 'optimal play from here'}
-            </span>
-          </div>
-          {ddComputing ? (
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <div className="w-3 h-3 border border-amber-400 border-t-transparent rounded-full animate-spin" />
-              Analyzing position...
-            </div>
-          ) : ddResult ? (
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-400">Best possible for declarer:</span>
-                <span className="text-white font-bold">{ddResult.totalTricks} tricks</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-400">Tricks won so far:</span>
-                <span className="text-slate-300">{ddResult.tricksWonSoFar}</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-slate-400">Contract needs:</span>
-                <span className="text-slate-300">{tricksNeeded} tricks</span>
-              </div>
-              {ddVerdict && (
-                <div className={`text-xs font-medium pt-1 border-t border-slate-700/30 ${ddVerdict.color}`}>
-                  {ddVerdict.text}
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-xs text-slate-500">Step forward to analyze the position.</p>
-          )}
-        </div>
-
-        <div className="mt-3 pt-3 border-t border-slate-700/30">
-          <div className="text-xs text-slate-500 mb-1">Auction</div>
-          <div className="flex flex-wrap gap-1">
-            {detail.auction.map((entry, i) => (
-              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/60 text-slate-300">
-                {seatNames[entry.seat] ?? entry.seat}: {bidText(entry.bid)}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TrickDisplay({ trick, seatNames }: { trick: TrickCard[]; seatNames: SeatNames }) {
-  return (
-    <div className="grid grid-cols-3 grid-rows-3 gap-0.5 w-28 h-28">
-      {SEATS.map((seat) => {
-        const tc = trick.find(c => c.seat === seat);
-        return (
-          <div
-            key={seat}
-            className={`flex flex-col items-center justify-center ${seatPosClass(seat)}`}
-          >
-            {tc && (
-              <CardDisplay card={tc.card} cardWidth={40} />
-            )}
-            {!tc && <span className="text-[9px] text-slate-700">{seatNames[seat] ?? seat}</span>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function seatPosClass(seat: Seat): string {
-  switch (seat) {
-    case 'N': return 'col-start-2 row-start-1';
-    case 'E': return 'col-start-3 row-start-2';
-    case 'S': return 'col-start-2 row-start-3';
-    case 'W': return 'col-start-1 row-start-2';
-  }
 }
 
 async function loadSeatNames(tableId: string): Promise<SeatNames> {
@@ -1027,14 +635,6 @@ function contractText(c: Contract): string {
   const strain = c.strain === 'NT' ? 'NT' : SUIT_SYMBOLS[c.strain as keyof typeof SUIT_SYMBOLS] ?? c.strain;
   const dbl = c.doubled === 1 ? 'X' : c.doubled === 2 ? 'XX' : '';
   return `${c.level}${strain}${dbl} by ${c.declarer}`;
-}
-
-function bidText(bid: AuctionEntry['bid']): string {
-  if (bid.type === 'pass') return 'Pass';
-  if (bid.type === 'double') return 'X';
-  if (bid.type === 'redouble') return 'XX';
-  const strain = bid.strain === 'NT' ? 'NT' : SUIT_SYMBOLS[bid.strain as keyof typeof SUIT_SYMBOLS] ?? bid.strain;
-  return `${bid.level}${strain}`;
 }
 
 function vulLabel(vul: Vulnerability): string {
