@@ -59,6 +59,7 @@ export function CardDisplay({ card, size = 'sm', cardWidth, onClick, disabled, h
   const h = w * 1.4;
   return (
     <button
+      data-card={`${card.rank}${card.suit}`}
       onClick={onClick}
       disabled={disabled}
       aria-label={`${card.rank}${card.suit}${badge ? `, ${badge}` : ''}`}
@@ -368,7 +369,7 @@ export function CardBackFan({ size = 'sm', cardWidth }: { size?: 'xs' | 'sm' | '
   const w = cardWidth ?? CARD_WIDTH[size];
   const h = w * 1.4;
   return (
-    <div className="flex items-center justify-center" style={{ width: w * 1.2, height: h }}>
+    <div data-card-back className="flex items-center justify-center" style={{ width: w * 1.2, height: h }}>
       <div className="relative" style={{ width: w, height: h }}>
         {Array.from({ length: 5 }).map((_, i) => (
           <div

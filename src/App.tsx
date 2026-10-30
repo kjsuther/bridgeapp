@@ -7,6 +7,7 @@ import { TableSetup } from '@/components/TableSetup';
 import { GameTable } from '@/components/GameTable';
 import { GameProvider } from '@/context/GameContext';
 import { History } from '@/components/History';
+import { openHistoryWindow } from '@/lib/historyWindow';
 import { AdminDashboard } from '@/components/AdminDashboard';
 
 type View =
@@ -19,7 +20,19 @@ type View =
 
 function AppContent() {
   const { user, loading } = useAuth();
-  const [view, setView] = useState<View>({ type: 'lobby' });
+  const [view, setView] = useState<View>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') !== 'history') return { type: 'lobby' };
+    const tableId = params.get('tableId');
+    return tableId
+      ? { type: 'table-history', tableId, gameId: params.get('gameId') ?? undefined }
+      : { type: 'history' };
+  });
+  const closeHistory = () => {
+    if (new URLSearchParams(window.location.search).get('view') === 'history') {
+      window.close();
+    } else setView({ type: 'lobby' });
+  };
 
   useEffect(() => {
     const handler = () => unlockAudio();
@@ -47,7 +60,7 @@ function AppContent() {
     return (
       <Lobby
         onJoinTable={(tableId) => setView({ type: 'table-setup', tableId })}
-        onShowHistory={() => setView({ type: 'history' })}
+        onShowHistory={() => openHistoryWindow()}
         onShowAdmin={() => setView({ type: 'admin' })}
       />
     );
@@ -69,20 +82,20 @@ function AppContent() {
         <GameTable
           tableId={view.tableId}
           onLeave={() => setView({ type: 'lobby' })}
-          onShowHistory={() => setView({ type: 'table-history', tableId: view.tableId, gameId: view.gameId, returnToGame: true })}
+          onShowHistory={() => openHistoryWindow(view.tableId, view.gameId)}
         />
       </GameProvider>
     );
   }
 
   if (view.type === 'history') {
-    return <History onBack={() => setView({ type: 'lobby' })} />;
+    return <History onBack={closeHistory} />;
   }
 
   if (view.type === 'table-history') {
     const backTarget = view.returnToGame
       ? () => setView({ type: 'game', tableId: view.tableId, gameId: view.gameId! })
-      : () => setView({ type: 'lobby' });
+      : closeHistory;
     return (
       <History
         onBack={backTarget}

@@ -99,10 +99,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const [replaysStarted, setReplaysStarted] = useState(false);
   const [hostId, setHostId] = useState<string | null>(null);
 
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reloadInProgressRef = useRef(false);
-  const reloadPendingRef = useRef(false);
+  const loadRequestRef = useRef(0);
+  const loadedHandRef = useRef<{ id: string; number: number; version: number } | null>(null);
 
   const updateHand = useCallback(async (
     handId: string,
@@ -121,6 +119,9 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     }
 
     handVersionRef.current = Number(nextVersion);
+    if (loadedHandRef.current?.id === handId) {
+      loadedHandRef.current.version = Math.max(loadedHandRef.current.version, Number(nextVersion));
+    }
     return true;
   }, []);
   const profileRef = useRef(profile);
@@ -180,6 +181,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
   // Load game state
   const loadGameState = useCallback(async () => {
+    const request = ++loadRequestRef.current;
     // Fetch game, table, and latest hand in parallel
     const [gameResult, tableResult, handsResult, replayResult] = await Promise.all([
       supabase
@@ -206,40 +208,49 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
         .limit(1),
     ]);
 
+    if (request !== loadRequestRef.current) return;
     const game = gameResult.data;
     const tableData = tableResult.data;
     const hands = handsResult.data;
-
-    setReplaysStarted(Boolean(replayResult.data && replayResult.data.length > 0));
-    setHostId(tableData?.host_id ?? null);
 
     if (!game) {
       setLoading(false);
       return;
     }
 
-    setMatchState({
-      totalImpsA: tableData?.match_imps_a ?? 0,
-      totalImpsB: tableData?.match_imps_b ?? 0,
-      boardNumber: tableData?.match_board_number ?? 0,
-      completedBoards: [],
-    });
-    setNewHandsBeforeReplay(tableData?.new_hands_before_replay ?? 10);
-    setHandNumber(game.hand_number);
+    const applyTableState = () => {
+      setReplaysStarted(Boolean(replayResult.data && replayResult.data.length > 0));
+      setHostId(tableData?.host_id ?? null);
+      setMatchState({
+        totalImpsA: tableData?.match_imps_a ?? 0,
+        totalImpsB: tableData?.match_imps_b ?? 0,
+        boardNumber: tableData?.match_board_number ?? 0,
+        completedBoards: [],
+      });
+      setNewHandsBeforeReplay(tableData?.new_hands_before_replay ?? 10);
+      setHandNumber(hands?.[0]?.hand_number ?? game.hand_number);
+
+    };
 
     if (hands && hands.length > 0) {
       const hand = hands[0];
-      handVersionRef.current = Number(hand.state_version ?? 0);
       const { data: visibleHands, error: visibleHandsError } = await supabase
         .from('hand_cards')
         .select('seat, cards')
         .eq('hand_id', hand.id);
 
+      if (request !== loadRequestRef.current) return;
+      const previous = loadedHandRef.current;
+      const version = Number(hand.state_version ?? 0);
+      if (previous && (hand.hand_number < previous.number || (hand.id === previous.id && version < previous.version))) return;
       if (visibleHandsError) {
         setError('Your cards could not be loaded. Please refresh the table.');
         return;
       }
 
+      applyTableState();
+      loadedHandRef.current = { id: hand.id, number: hand.hand_number, version };
+      handVersionRef.current = version;
       const visibleDeal: Record<string, string[]> = { N: [], E: [], S: [], W: [] };
       for (const row of visibleHands ?? []) {
         visibleDeal[row.seat as Seat] = row.cards as string[];
@@ -248,7 +259,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       setContract(null);
       setPlayState(null);
       setLastScore(null);
-      setPassedOut(false);
+      setPassedOut(hand.phase === 'finished' && !hand.contract);
       const loadedDeal = jsonToDeal(visibleDeal);
       setDeal(loadedDeal);
       setDealer(hand.dealer as Seat);
@@ -270,72 +281,38 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
       setBidUndoRequest((hand.bid_undo_request as UndoRequest | undefined) ?? null);
       setHandRole((hand.hand_role as HandRole | undefined) ?? 'original');
+    } else {
+      applyTableState();
     }
 
     setLoading(false);
   }, [gameId, tableId]);
 
-  useEffect(() => {
-    loadGameState();
-  }, [loadGameState]);
-
-  // Realtime subscription
+  // Realtime is primary. Periodic/focus reads recover a missed final-hand
+  // update and re-fetch hand_cards after scoring makes all four hands visible.
   useEffect(() => {
     if (!gameId) return;
-
-    const debouncedReload = () => {
-      if (reloadInProgressRef.current) {
-        reloadPendingRef.current = true;
-        return;
-      }
-      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
-      reloadTimerRef.current = setTimeout(async () => {
-        reloadTimerRef.current = null;
-        reloadInProgressRef.current = true;
-        await loadGameState();
-        reloadInProgressRef.current = false;
-        if (reloadPendingRef.current) {
-          reloadPendingRef.current = false;
-          debouncedReload();
-        }
-      }, 150);
-    };
-
+    const requests = loadRequestRef;
+    const live = createLiveRefresh(loadGameState, 5000);
+    void live.refresh();
     const channel = supabase.channel(`game-${gameId}`)
       .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'hands',
-        filter: `game_id=eq.${gameId}`,
-      }, debouncedReload)
+        event: '*', schema: 'public', table: 'hands', filter: `game_id=eq.${gameId}`,
+      }, live.refresh)
       .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'hand_cards',
-      }, debouncedReload)
+        event: '*', schema: 'public', table: 'hand_cards',
+      }, live.refresh)
       .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'games',
-        filter: `id=eq.${gameId}`,
-      }, debouncedReload)
+        event: '*', schema: 'public', table: 'games', filter: `id=eq.${gameId}`,
+      }, live.refresh)
       .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'tables',
-        filter: `id=eq.${tableId}`,
-      }, debouncedReload)
-      .subscribe();
-
-    channelRef.current = channel;
-
+        event: '*', schema: 'public', table: 'tables', filter: `id=eq.${tableId}`,
+      }, live.refresh)
+      .subscribe(live.onStatus);
     return () => {
-      supabase.removeChannel(channel);
-      channelRef.current = null;
-      if (reloadTimerRef.current) {
-        clearTimeout(reloadTimerRef.current);
-        reloadTimerRef.current = null;
-      }
+      live.dispose();
+      requests.current++;
+      void supabase.removeChannel(channel);
     };
   }, [gameId, loadGameState, tableId]);
 
@@ -490,13 +467,15 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       updateData.play_state = newPlayState;
     }
 
-    await updateHand(currentHandId, updateData);
+    const saved = await updateHand(currentHandId, updateData);
+    if (!saved) { await loadGameState(); return; }
 
     setContract(newContract);
     setPlayState(newPlayState);
     setPhase(newPhase);
     setPassedOut(newPassedOut);
-  }, [mySeat, currentHandId, auction, dealer, updateHand]);
+    if (newPassedOut) await loadGameState();
+  }, [mySeat, currentHandId, auction, dealer, updateHand, loadGameState]);
 
   // Card play
   const playCard = useCallback(async (card: Card) => {
@@ -671,7 +650,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     setPlayState(updatedPlayState);
     setPhase(newPhase);
     setContract(newContract);
-  }, [mySeat, currentHandId, playState, deal, contract, vulnerability, lastScore, handRole, gameId, tableId, updateHand]);
+    if (newPhase === 'scoring') await loadGameState();
+  }, [mySeat, currentHandId, playState, deal, contract, vulnerability, lastScore, handRole, gameId, tableId, updateHand, loadGameState]);
 
   // --- Undo logic ---
   // Any player on the side that played the last card may request an undo.

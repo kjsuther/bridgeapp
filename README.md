@@ -122,3 +122,20 @@ configuration remains necessary on networks that cannot connect directly.
 After publishing, all participants should reload once to use the new connection
 protocol. Automated tests simulate four-player joins and refreshes; a live
 four-person test across the participants' networks is still required.
+
+## History windows, hand results, and card movement
+
+History opens in a separate window so the current table and its media connections
+stay mounted. Allow popups for the site if the browser blocks the history window.
+The history URL retains the selected table and game and uses the existing login.
+
+Each completed or passed-out hand automatically opens a result dialog with all
+four original 13-card hands. Close it to return to the table, or reopen it from
+the result controls. Realtime updates, reconnect/focus reads, and a visible-tab
+five-second recovery read keep all players current. The existing database card
+visibility policies still control access; this update requires no new SQL.
+
+Card play uses one animation of the actual card from its measured hand position.
+Hidden opponents use the card-back position. Server echoes, stale snapshots, and
+undo/replay of the same physical card do not replay its animation during that
+hand. Animation preferences and reduced-motion settings are respected.
