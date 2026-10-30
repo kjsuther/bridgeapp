@@ -1,10 +1,12 @@
+import { AuctionComparison } from './AuctionComparison';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { jsonToDeal } from '@/lib/dealing';
+import { loadHandDetail, loadSeatNames } from '@/lib/handReview';
+import { alignedReplaySeats } from '@/lib/reviewAlignment';
 import { ComparisonHandPanel } from './ComparisonHandPanel';
 import type { HandDetail, SeatNames } from '@/types/review';
-import type { Contract, AuctionEntry, PlayState, Seat, Vulnerability, HandScore } from '@/types/bridge';
+import type { Contract, Vulnerability, HandScore } from '@/types/bridge';
 import { SUIT_SYMBOLS } from '@/types/bridge';
 import { ArrowLeft, Scale, ChevronRight, ChevronLeft, Layers, Compass } from 'lucide-react';
 
@@ -258,7 +260,6 @@ function TableHistory({
   gameId?: string;
   onBack: () => void;
 }) {
-  const { profile } = useAuth();
   const [boards, setBoards] = useState<CompletedBoard[]>([]);
   const [tableName, setTableName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -466,6 +467,8 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
     })();
   }, [board.originalHandId, board.replayHandId, board.tableId]);
 
+  const replayLayout = useMemo(() => original && replay ? alignedReplaySeats(original.deal, replay.deal) : undefined, [original, replay]);
+
   const maxCards = useMemo(() => {
     const o = original?.playState.completedTricks.length ?? 0;
     const r = replay?.playState.completedTricks.length ?? 0;
@@ -521,6 +524,8 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
           </div>
         </div>
 
+        <AuctionComparison original={original} replay={replay} seatNames={seatNames} replaySeats={replayLayout} />
+
         {/* Card-by-card navigation */}
         <div className="flex items-center justify-center gap-4 mb-4 bg-slate-800/60 rounded-xl border border-slate-700/50 p-3">
           <button
@@ -550,6 +555,7 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
         {/* Side-by-side comparison */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <ComparisonHandPanel
+            showAuction={false}
             title="Original"
             subtitle="N+S vs E+W (normal seats)"
             detail={original}
@@ -558,8 +564,11 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
             seatNames={seatNames}
           />
           <ComparisonHandPanel
-            title="Replay (Swapped)"
-            subtitle="N+S swapped with E+W"
+            showAuction={false}
+            title="Replay (Aligned)"
+            subtitle="Cards aligned to original; labels show actual seats"
+            displaySeats={replayLayout}
+            displayTrumpStrain={original.contract.strain}
             detail={replay}
             cardIndex={currentCardIndex}
             accent="blue"
@@ -569,66 +578,6 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
       </div>
     </div>
   );
-}
-
-async function loadSeatNames(tableId: string): Promise<SeatNames> {
-  const { data: players } = await supabase
-    .from('table_players')
-    .select('seat, user_id')
-    .eq('table_id', tableId);
-
-  if (!players || players.length === 0) {
-    return { N: 'N', E: 'E', S: 'S', W: 'W' };
-  }
-
-  const userIds = players.map((p) => p.user_id);
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, display_name')
-    .in('id', userIds);
-
-  const nameMap: Record<string, string> = {};
-  (profiles || []).forEach((p) => { nameMap[p.id] = p.display_name; });
-
-  const result: SeatNames = { N: 'N', E: 'E', S: 'S', W: 'W' };
-  for (const p of players) {
-    const seat = p.seat as Seat;
-    result[seat] = nameMap[p.user_id] ?? seat;
-  }
-  return result;
-}
-
-async function loadHandDetail(handId: string): Promise<HandDetail | null> {
-  const { data: hand, error } = await supabase
-    .from('hands')
-    .select('id, dealer, vulnerability, auction, contract, score, play_state')
-    .eq('id', handId)
-    .maybeSingle();
-
-  if (error || !hand) return null;
-
-  const { data: cardRows } = await supabase
-    .from('hand_cards')
-    .select('seat, cards')
-    .eq('hand_id', handId);
-
-  if (!cardRows) return null;
-
-  const cardMap: Record<string, string[]> = { N: [], E: [], S: [], W: [] };
-  for (const row of cardRows) {
-    cardMap[row.seat as Seat] = row.cards as string[];
-  }
-
-  return {
-    handId: hand.id,
-    deal: jsonToDeal(cardMap),
-    auction: (hand.auction as AuctionEntry[]) || [],
-    contract: hand.contract as Contract,
-    score: hand.score as HandScore,
-    playState: hand.play_state as PlayState,
-    vulnerability: hand.vulnerability as Vulnerability,
-    dealer: hand.dealer as Seat,
-  };
 }
 
 function contractText(c: Contract): string {

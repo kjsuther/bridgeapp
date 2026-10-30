@@ -4,6 +4,17 @@
 
 A four-player rubber bridge table built with React, WebRTC, and Supabase.
 
+Table hosts assign each seat by entering the player's existing account email,
+including their own. Player dropdowns and full-account-list loading are removed.
+Email matching ignores case and surrounding spaces; unknown accounts and duplicate
+seats produce an error without moving an already seated player. This assigns
+existing accounts only and does not send invitation emails.
+
+Board comparison includes paired auction tables above the card analysis. Columns
+follow matching original/replay hands, with actual seat and player labels. Each
+row shows that hand's next call; small numbers retain chronological auction order.
+Differing calls and calls absent from the other auction are labeled and highlighted.
+
 ## Local development
 
 ```bash
@@ -87,8 +98,7 @@ Dots use declarer's final trick total minus the tricks required by the contract:
 red negative values for undertricks, green `=` for exactly making, and green
 positive values for overtricks. Center cards retain the result immediately after
 that card was played, before any later mistakes. No database migration is needed
-for this comparison change. The separate after-game Analyze Hand panel continues
-to use the existing solver.
+for this comparison change. Completed-hand analysis opens in its own window and uses this same DDS worker engine.
 
 `npm test` checks the DDS adapter against independent exhaustive endgames in
 all strains and seat positions, forced plays, equivalent cards, center-card
@@ -122,3 +132,38 @@ configuration remains necessary on networks that cannot connect directly.
 After publishing, all participants should reload once to use the new connection
 protocol. Automated tests simulate four-player joins and refreshes; a live
 four-person test across the participants' networks is still required.
+
+## History windows, hand results, and card movement
+
+History opens in a separate window so the current table and its media connections
+stay mounted. Allow popups for the site if the browser blocks the history window.
+The history URL retains the selected table and game and uses the existing login.
+
+Each completed or passed-out hand automatically opens a result dialog with all
+four original 13-card hands. Close it to return to the table, or reopen it from
+the result controls. Realtime updates, reconnect/focus reads, and a visible-tab
+five-second recovery read keep all players current. The existing database card
+visibility policies still control access; this update requires no new SQL.
+
+Card play uses one animation of the actual card from its measured hand position.
+Hidden opponents use the card-back position. Server echoes, stale snapshots, and
+undo/replay of the same physical card do not replay its animation during that
+hand. Animation preferences and reduced-motion settings are respected.
+
+## Completed-hand analysis and independent progression
+
+The result dialog and table result controls offer a separate double-dummy window
+for the specific completed hand. Its fixed hand ID remains unchanged even when
+new hands are dealt. Step through the recorded play or use the position slider.
+Passed-out hands have no contract to analyze. Completed-hand reads retain the
+existing database authorization checks and require all four starting hands.
+
+Replay comparisons align matching 13-card sets to the original screen positions,
+including the center trick. Both panels use the original suit display order.
+Seat labels, contracts, scores, and all solver inputs remain the actual values.
+
+Moving on is per player: another player dealing does not replace the hand being
+reviewed in the current game window. Click Continue to next hand to deal, or Join
+next hand to catch up to a hand already dealt. Cameras/audio stay connected.
+No additional database migration is required. Reloading the browser or leaving
+and re-entering a table loads the latest hand rather than restoring an old review.

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { sortHand } from '@/lib/dealing';
+import { NORMAL_REVIEW_SEATS } from '@/lib/reviewAlignment';
 import { cardKey, contractBadge } from '@/lib/ddsPosition';
 import { useComparisonAnalysis } from '@/hooks/useComparisonAnalysis';
 import type { Card, Contract, Seat, Suit, TrickCard, AuctionEntry } from '@/types/bridge';
@@ -52,14 +53,17 @@ function legalCardsForPosition(hand: Card[], playedCards: TrickCard[]): Card[] {
 }
 
 export function ComparisonHandPanel({
-  title, subtitle, detail, cardIndex, accent, seatNames,
+  title, subtitle, detail, cardIndex, accent, seatNames, displaySeats = NORMAL_REVIEW_SEATS, displayTrumpStrain, showAuction = true,
 }: {
   title: string;
   subtitle: string;
   detail: HandDetail;
   cardIndex: number;
   accent: 'emerald' | 'blue';
+  showAuction?: boolean;
   seatNames: SeatNames;
+  displaySeats?: Record<Seat, Seat>;
+  displayTrumpStrain?: string;
 }) {
   const accentText = accent === 'emerald' ? 'text-emerald-400' : 'text-blue-400';
   const accentBorder = accent === 'emerald' ? 'border-emerald-700/40' : 'border-blue-700/40';
@@ -87,7 +91,7 @@ export function ComparisonHandPanel({
   }, [tricks, currentTrickNumber, cardInTrick]);
 
   const getRemainingHand = (seat: Seat): Card[] => {
-    const full = sortHand(detail.deal[seat], detail.contract.strain);
+    const full = sortHand(detail.deal[seat], displayTrumpStrain ?? detail.contract.strain);
     const played = playedUpTo[seat] ?? [];
     return full.filter(c => !played.some(p => p.suit === c.suit && p.rank === c.rank));
   };
@@ -158,30 +162,30 @@ export function ComparisonHandPanel({
         <div className="grid grid-areas-4h grid-cols-1 gap-2 min-w-[480px]">
           <div className="flex justify-center">
             <HandDisplay
-              hand={getRemainingHand('N')}
-              seat="N"
-              label={seatLabel('N')}
+              hand={getRemainingHand(displaySeats.N)}
+              seat={displaySeats.N}
+              label={seatLabel(displaySeats.N)}
               cardWidth={36}
-              trumpStrain={trumpStrain}
+              trumpStrain={displayTrumpStrain ?? trumpStrain}
               cardOverlap={0.55}
-              cardBadges={nextPlayer === 'N' ? cardBadges : undefined}
-              cardBadgeClassNames={nextPlayer === 'N' ? cardBadgeClassNames : undefined}
+              cardBadges={nextPlayer === displaySeats.N ? cardBadges : undefined}
+              cardBadgeClassNames={nextPlayer === displaySeats.N ? cardBadgeClassNames : undefined}
             />
           </div>
           <div className="flex items-center justify-between gap-2">
             <HandDisplay
-              hand={getRemainingHand('W')}
-              seat="W"
-              label={seatLabel('W')}
+              hand={getRemainingHand(displaySeats.W)}
+              seat={displaySeats.W}
+              label={seatLabel(displaySeats.W)}
               cardWidth={36}
-              trumpStrain={trumpStrain}
+              trumpStrain={displayTrumpStrain ?? trumpStrain}
               cardOverlap={0.55}
-              cardBadges={nextPlayer === 'W' ? cardBadges : undefined}
-              cardBadgeClassNames={nextPlayer === 'W' ? cardBadgeClassNames : undefined}
+              cardBadges={nextPlayer === displaySeats.W ? cardBadges : undefined}
+              cardBadgeClassNames={nextPlayer === displaySeats.W ? cardBadgeClassNames : undefined}
             />
             <div className="flex-shrink-0">
               {currentTrickCards.length > 0 ? (
-                <TrickDisplay trick={currentTrickCards} seatNames={seatNames} totals={analysis.centerTotals} contractLevel={detail.contract.level} failed={!!analysis.error} />
+                <TrickDisplay trick={currentTrickCards} displaySeats={displaySeats} seatNames={seatNames} totals={analysis.centerTotals} contractLevel={detail.contract.level} failed={!!analysis.error} />
               ) : (
                 <div className="w-24 h-24 flex items-center justify-center text-xs text-slate-600">
                   {currentTrickNumber >= tricks.length ? 'Complete' : '—'}
@@ -189,26 +193,26 @@ export function ComparisonHandPanel({
               )}
             </div>
             <HandDisplay
-              hand={getRemainingHand('E')}
-              seat="E"
-              label={seatLabel('E')}
+              hand={getRemainingHand(displaySeats.E)}
+              seat={displaySeats.E}
+              label={seatLabel(displaySeats.E)}
               cardWidth={36}
-              trumpStrain={trumpStrain}
+              trumpStrain={displayTrumpStrain ?? trumpStrain}
               cardOverlap={0.55}
-              cardBadges={nextPlayer === 'E' ? cardBadges : undefined}
-              cardBadgeClassNames={nextPlayer === 'E' ? cardBadgeClassNames : undefined}
+              cardBadges={nextPlayer === displaySeats.E ? cardBadges : undefined}
+              cardBadgeClassNames={nextPlayer === displaySeats.E ? cardBadgeClassNames : undefined}
             />
           </div>
           <div className="flex justify-center">
             <HandDisplay
-              hand={getRemainingHand('S')}
-              seat="S"
-              label={seatLabel('S')}
+              hand={getRemainingHand(displaySeats.S)}
+              seat={displaySeats.S}
+              label={seatLabel(displaySeats.S)}
               cardWidth={36}
-              trumpStrain={trumpStrain}
+              trumpStrain={displayTrumpStrain ?? trumpStrain}
               cardOverlap={0.55}
-              cardBadges={nextPlayer === 'S' ? cardBadges : undefined}
-              cardBadgeClassNames={nextPlayer === 'S' ? cardBadgeClassNames : undefined}
+              cardBadges={nextPlayer === displaySeats.S ? cardBadges : undefined}
+              cardBadgeClassNames={nextPlayer === displaySeats.S ? cardBadgeClassNames : undefined}
             />
           </div>
         </div>
@@ -264,7 +268,7 @@ export function ComparisonHandPanel({
           )}
         </div>
 
-        <div className="mt-3 pt-3 border-t border-slate-700/30">
+        {showAuction && <div className="mt-3 pt-3 border-t border-slate-700/30">
           <div className="text-xs text-slate-500 mb-1">Auction</div>
           <div className="flex flex-wrap gap-1">
             {detail.auction.map((entry, i) => (
@@ -273,25 +277,26 @@ export function ComparisonHandPanel({
               </span>
             ))}
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );
 }
 
-function TrickDisplay({ trick, seatNames, totals, contractLevel, failed }: {
+function TrickDisplay({ trick, seatNames, totals, contractLevel, failed, displaySeats }: {
   trick: TrickCard[]; seatNames: SeatNames; totals: Record<string, number>;
-  contractLevel: number; failed: boolean;
+  contractLevel: number; failed: boolean; displaySeats: Record<Seat, Seat>;
 }) {
   return (
     <div className="grid grid-cols-3 grid-rows-3 gap-0.5 w-36 h-40">
-      {SEATS.map((seat) => {
+      {SEATS.map((position) => {
+        const seat = displaySeats[position];
         const tc = trick.find(c => c.seat === seat);
         const total = tc ? totals[seat + ':' + cardKey(tc.card)] : undefined;
         return (
           <div
             key={seat}
-            className={`flex flex-col items-center justify-center ${seatPosClass(seat)}`}
+            className={`flex flex-col items-center justify-center ${seatPosClass(position)}`}
           >
             {tc && (
               <CardDisplay card={tc.card} cardWidth={40} disabled

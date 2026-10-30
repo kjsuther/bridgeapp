@@ -6,14 +6,14 @@ import { HandDisplay, PlayedCard, CardBackFan, DummyHandDisplay, type HandLayout
 import { BiddingPanel, AuctionHistory } from '@/components/BiddingPanel';
 import { BiddingReference } from '@/components/BiddingReference';
 import { ScorePanel, NextHandButton } from '@/components/ScorePanel';
-import { DoubleDummyReview } from '@/components/DoubleDummyReview';
+import { openDoubleDummyWindow } from '@/lib/historyWindow';
+import { HandSummary } from '@/components/HandSummary';
+import { useCardPlayAnimation } from '@/hooks/useCardPlayAnimation';
 import { sortHand, dummySeat, isVulnerable } from '@/context/GameContext';
 import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/bridge';
 import { SEATS, SUIT_SYMBOLS, STRAIN_SYMBOLS, sideOfSeat } from '@/types/bridge';
 import { getLegalCards } from '@/lib/play';
 import { highCardPoints } from '@/lib/dealing';
-import { AvatarFigure } from '@/components/AvatarFigure';
-import { DEFAULT_AVATAR_STYLE, isAvatarStyle, type AvatarStyle } from '@/lib/avatars';
 import { ProfileSettings } from '@/components/ProfileSettings';
 import { supabase } from '@/lib/supabase';
 import {
@@ -109,7 +109,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     playState, phase, passedOut, isMyTurn, currentSeat,
     legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading,
     handRole, matchState,
-    newHandsBeforeReplay, replaysStarted, hostId,
+    newHandsBeforeReplay, replaysStarted, hostId, handNumber, currentHandId,
   } = game;
 
   const myUserId = profile?.id ?? '';
@@ -129,37 +129,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     const map: Record<Seat, string> = { N: '', E: '', S: '', W: '' };
     players.forEach((p) => { map[p.seat] = p.display_name; });
     return map;
-  }, [players]);
-
-  const seatToAvatarStyle: Record<Seat, AvatarStyle> = useMemo(() => {
-    const map: Record<Seat, AvatarStyle> = {
-      N: defaultAvatarForSeat('N'),
-      E: defaultAvatarForSeat('E'),
-      S: defaultAvatarForSeat('S'),
-      W: defaultAvatarForSeat('W'),
-    };
-    players.forEach((player) => {
-      if (isAvatarStyle(player.avatar_style)) map[player.seat] = player.avatar_style;
-    });
-    return map;
-  }, [players]);
-
-  const [seatToAvatarUrl, setSeatToAvatarUrl] = useState<Record<Seat, string | null>>({ N: null, E: null, S: null, W: null });
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const entries = await Promise.all(players.map(async (player) => {
-        if (!player.avatar_url) return [player.seat, null] as const;
-        const { data } = await supabase.storage.from('profile-avatars').createSignedUrl(player.avatar_url, 3600);
-        return [player.seat, data?.signedUrl ?? null] as const;
-      }));
-      if (cancelled) return;
-      const next: Record<Seat, string | null> = { N: null, E: null, S: null, W: null };
-      entries.forEach(([seat, url]) => { next[seat] = url; });
-      setSeatToAvatarUrl(next);
-    })();
-    return () => { cancelled = true; };
   }, [players]);
 
   const legalCardSet = useMemo(() => {
@@ -185,7 +154,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     [mySeat],
   );
 
-  const [avatarStyle, setAvatarStyle] = useState<AvatarStyle>(DEFAULT_AVATAR_STYLE);
   const [profileOpen, setProfileOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [animToggleOpen, setAnimToggleOpen] = useState(false);
@@ -194,26 +162,13 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
   const [replaySetting, setReplaySetting] = useState(newHandsBeforeReplay);
 
   useEffect(() => { setReplaySetting(newHandsBeforeReplay); }, [newHandsBeforeReplay]);
-  const [avatarPlay, setAvatarPlay] = useState<{ seat: Seat; card: Card; key: string } | null>(null);
   const currentTrick = playState?.currentTrick ?? [];
-  const currentTrickCard = currentTrick.length > 0 ? currentTrick[currentTrick.length - 1] : null;
-  const animationKey = phase === 'playing' && currentTrickCard
-    ? `${playState?.trickNumber ?? 0}-${playState?.currentTrick.length ?? 0}-${currentTrickCard.seat}-${currentTrickCard.card.rank}${currentTrickCard.card.suit}`
-    : '';
-
-  useEffect(() => {
-    if (isAvatarStyle(profile?.avatar_style)) {
-      setAvatarStyle(profile.avatar_style);
-    }
-  }, [profile?.avatar_style]);
-
-  useEffect(() => {
-    if (!animationKey || !currentTrickCard || !animationsEnabled) return;
-    const nextPlay = { seat: currentTrickCard.seat, card: currentTrickCard.card, key: animationKey };
-    setAvatarPlay(nextPlay);
-    const timeout = window.setTimeout(() => setAvatarPlay((current) => current?.key === animationKey ? null : current), fastAnimations ? 520 : 900);
-    return () => window.clearTimeout(timeout);
-  }, [animationKey, currentTrickCard, animationsEnabled, fastAnimations]);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const handComplete = phase === 'scoring' || phase === 'finished';
+  useEffect(() => { setSummaryOpen(handComplete); }, [handComplete, handNumber]);
+  const captureCardSource = useCardPlayAnimation(
+    tableAreaRef, `${game.gameId}-${handNumber}`, playState, animationsEnabled, fastAnimations,
+  );
 
   const lastBidPerSeat: Record<Seat, AuctionEntry | null> = useMemo(() => {
     const map: Record<Seat, AuctionEntry | null> = { N: null, E: null, S: null, W: null };
@@ -268,13 +223,14 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     if (!deal) return [];
     const fullHand = sortHand(deal[seat], contract?.strain);
     const played = allPlayedCards[seat] ?? [];
+    if (handComplete) return fullHand;
     return fullHand.filter(
       (c) => !played.some((p) => p.suit === c.suit && p.rank === c.rank),
     );
   };
 
   const shouldShowHand = (seat: Seat): boolean => {
-    if (seat === mySeat) return true;
+    if (handComplete || seat === mySeat) return true;
     if (phase !== 'playing' || !isDummyRevealed || !dummy) return false;
     if (seat === dummy) return true;
     return isDummySeat && seat === contract?.declarer;
@@ -291,7 +247,10 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
   const getCardClickHandler = (seat: Seat): ((card: Card) => void) | undefined => {
     if (!canPlayForSeat(seat)) return undefined;
-    return playCard;
+    return (card) => {
+      captureCardSource(seat, card);
+      void playCard(card);
+    };
   };
 
   const getLegalCardsForDisplay = (seat: Seat): Set<string> | undefined => {
@@ -384,7 +343,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     const isMe = seat === mySeat;
     const isDummySeatHere = dummy === seat && isDummyRevealed && phase === 'playing';
     const showHand = shouldShowHand(seat);
-    const isTurnNow = currentSeat === seat && phase !== 'finished';
+    const isTurnNow = currentSeat === seat && phase === 'playing';
     const layout: HandLayout = side === 'top' || side === 'bottom' ? 'horizontal' : 'side';
     const cardW = isMe ? myCardW : isDummySeatHere ? dummyCardW : layout === 'horizontal' ? otherHorizontalCardW : otherSideCardW;
 
@@ -397,7 +356,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
         playerName={seatToName[seat] || seat}
         hcp={phase === 'bidding' && seat === mySeat ? highCardPoints(getHand(seat)) : undefined}
       >
-        <div className={`flex flex-col items-center gap-1 ${layout === 'side' ? 'max-w-full' : ''}`}>
+        <div data-hand-seat={seat} className={`flex flex-col items-center gap-1 ${layout === 'side' ? 'max-w-full' : ''}`}>
           {showHand ? (
             dummy === seat && isDummyRevealed && phase === 'playing' ? (
               <DummyHandDisplay
@@ -434,6 +393,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
   return (
     <>
+    {handComplete && summaryOpen && <HandSummary onClose={() => setSummaryOpen(false)} />}
     <div className="h-dvh min-h-[28rem] overflow-hidden bg-gradient-to-br from-slate-900 via-emerald-950/80 to-slate-900 flex flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur border-b border-slate-700/50">
@@ -624,16 +584,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
           {/* Felt table background */}
           <div className="absolute inset-4 rounded-2xl bg-gradient-to-br from-emerald-900/40 to-emerald-950/60 border border-emerald-800/30 pointer-events-none" />
 
-          {avatarPlay && animationsEnabled && (
-            <AnimatedPlayCard
-              key={avatarPlay.key}
-              side={viewSides[avatarPlay.seat]}
-              avatarStyle={avatarPlay.seat === mySeat ? avatarStyle : seatToAvatarStyle[avatarPlay.seat]}
-              imageUrl={seatToAvatarUrl[avatarPlay.seat]}
-              fast={fastAnimations}
-            />
-          )}
-
           {/* Top seat */}
           {seatBySide.top && (
             <div style={{ gridArea: 'top' }} className="relative overflow-hidden flex justify-center items-end pb-2 z-10">
@@ -649,8 +599,8 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
           )}
 
           {/* Center: trick area / bidding area / scoring */}
-          <div style={{ gridArea: 'center' }} className="relative overflow-hidden flex items-center justify-center p-2">
-            <div className="pointer-events-auto w-full h-full flex items-center justify-center overflow-hidden">
+          <div style={{ gridArea: 'center' }} className={`relative flex items-center justify-center p-2 ${phase === 'playing' ? 'overflow-visible z-30' : 'overflow-hidden'}`}>
+            <div className={`pointer-events-auto w-full h-full flex items-center justify-center ${phase === 'playing' ? 'overflow-visible' : 'overflow-hidden'}`}>
 
               {phase === 'bidding' && !passedOut && (
                 <div className="flex flex-col items-center gap-2 bg-slate-900/70 backdrop-blur-sm rounded-2xl p-3 border border-slate-700/40 max-h-full overflow-hidden">
@@ -676,11 +626,10 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
               {phase === 'playing' && playState && (
                 <div className="relative flex items-center justify-center" style={{ width: trickAreaSize, height: trickAreaSize }}>
-                  {(currentTrick.length > 0 ? currentTrick : (playState.lastCompletedTrick ?? [])).map((tc, i) => {
+                  {(currentTrick.length > 0 ? currentTrick : (playState.lastCompletedTrick ?? [])).map((tc) => {
                     const side = viewSides[tc.seat];
-                    const flyClass = `card-fly-in-${side}`;
                     return (
-                      <div key={`${tc.seat}-${tc.card.rank}${tc.card.suit}-${i}`} className={`absolute ${TRICK_POSITION_CLASSES[side]} transition-all duration-300 ${flyClass}`}>
+                      <div key={`${handNumber}-${tc.seat}-${tc.card.rank}${tc.card.suit}`} data-played-seat={tc.seat} className={`pointer-events-none absolute ${TRICK_POSITION_CLASSES[side]}`}>
                         <PlayedCard card={tc.card} seat={tc.seat} cardWidth={playedCardW} />
                       </div>
                     );
@@ -717,7 +666,10 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                   ) : (
                     <>
                       <ScorePanel />
-                      <DoubleDummyReview />
+                      <button onClick={() => setSummaryOpen(true)} className="rounded-lg bg-slate-700 px-4 py-2 text-sm text-white">
+                        Review result and starting hands
+                      </button>
+                      {contract && currentHandId && <button onClick={() => openDoubleDummyWindow(currentHandId)} className="rounded-lg bg-amber-700 px-4 py-2 text-sm text-white">Open double-dummy analysis</button>}
                       <NextHandButton />
                     </>
                   )}
@@ -746,8 +698,10 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
             const isLocal = seatToUserId[seat] === myUserId;
             const isDeclarerCameraForDummy = isDummySeat && contract?.declarer === seat;
             const isRevealedDummyCamera = phase === 'playing' && isDummyRevealed && dummy === seat;
-            const isSmallCamera = isLocal || isDeclarerCameraForDummy;
-            const cameraPosition = isLocal
+            const isSmallCamera = handComplete || isLocal || isDeclarerCameraForDummy;
+            const cameraPosition = handComplete
+              ? side === 'bottom' ? 'bottom-3 left-3' : side === 'top' ? 'top-3 right-3' : side === 'left' ? 'top-3 left-3' : 'bottom-3 right-3'
+              : isLocal
               ? 'bottom-3 left-3'
               : isRevealedDummyCamera
                 ? 'top-3 right-3'
@@ -758,7 +712,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                     : side === 'left'
                       ? 'left-3 top-1/2 -translate-y-1/2'
                       : 'right-3 top-1/2 -translate-y-1/2';
-            const cameraWidth = isRevealedDummyCamera
+            const cameraWidth = handComplete || isRevealedDummyCamera
               ? Math.min(88, w * 0.1, h * 0.12)
               : isSmallCamera
                 ? Math.min(128, w * 0.12, h * 0.16)
@@ -838,20 +792,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
       )}
     </div>
     </>
-  );
-}
-
-function defaultAvatarForSeat(seat: Seat): AvatarStyle {
-  return ({ N: 'cobalt', E: 'coral', S: 'mint', W: 'gold' } as Record<Seat, AvatarStyle>)[seat];
-}
-
-function AnimatedPlayCard({ side, avatarStyle, imageUrl, fast }: { side: ViewSide; avatarStyle: AvatarStyle; imageUrl?: string | null; fast: boolean }) {
-  return (
-    <div className={`pointer-events-none absolute left-1/2 top-1/2 z-30 ${fast ? 'card-travel-fast' : ''} card-travel-from-${side}`}>
-      <div className="-translate-x-1/2 -translate-y-1/2">
-        <AvatarFigure style={avatarStyle} imageUrl={imageUrl} active />
-      </div>
-    </div>
   );
 }
 

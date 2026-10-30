@@ -69,15 +69,16 @@ function vulLabel(vul: string): string {
 }
 
 export function NextHandButton() {
-  const { phase, startNewHand, mySeat } = useGame();
+  const { phase, startNewHand, mySeat, nextHandAvailable, nextHandBusy } = useGame();
 
   if ((phase === 'scoring' || phase === 'finished') && mySeat) {
     return (
       <button
         onClick={startNewHand}
+        disabled={nextHandBusy}
         className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl transition-all shadow-lg shadow-emerald-600/20"
       >
-        Deal Next Hand
+        {nextHandBusy ? 'Joining next hand…' : nextHandAvailable ? 'Join next hand' : 'Continue to next hand'}
         <ArrowRight className="w-4 h-4" />
       </button>
     );
