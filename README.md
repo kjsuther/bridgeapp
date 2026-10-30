@@ -12,7 +12,10 @@ existing accounts only and does not send invitation emails.
 
 Board comparison includes paired auction tables above the card analysis. Columns
 follow matching original/replay hands, with actual seat and player labels. Each
-row shows that hand's next call; small numbers retain chronological auction order.
+row reads left to right in auction order, with blank opening cells before the
+first bidder and subsequent calls wrapping to the next row. Small numbers retain
+chronological auction order. Difference highlights compare the matching hand's
+corresponding calls even when opening offsets differ between auctions.
 Differing calls and calls absent from the other auction are labeled and highlighted.
 
 ## Local development

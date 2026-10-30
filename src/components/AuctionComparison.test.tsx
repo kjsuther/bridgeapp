@@ -26,5 +26,41 @@ it('marks differing bids and extra calls, including passes and doubles', () => {
   expect(html).toContain('2 differing decisions');
   expect(html).toContain('No further call');
   expect(html).toContain('>XX</span>');
-  expect(html.match(/>Different</g)).toHaveLength(4);
+  expect(html.match(/>Different</g)).toHaveLength(3);
+});
+
+it('leaves two opening blanks when the first bidder is in the third column and wraps the first columns down', () => {
+  const auction: AuctionEntry[] = [
+    { seat: 'S', bid: { type: 'bid', level: 1, strain: 'H' } },
+    { seat: 'W', bid: { type: 'pass' } },
+    { seat: 'N', bid: { type: 'bid', level: 2, strain: 'H' } },
+    { seat: 'E', bid: { type: 'pass' } },
+    { seat: 'S', bid: { type: 'pass' } },
+    { seat: 'W', bid: { type: 'pass' } },
+  ];
+  const html = renderToStaticMarkup(<AuctionComparison seatNames={names}
+    original={detail(auction, 'S')} replay={detail(auction, 'S')} />);
+  const body = html.match(/<tbody>(.*?)<\/tbody>/)![1];
+  const rows = [...body.matchAll(/<tr>(.*?)<\/tr>/g)].map(match => match[1]);
+  expect(rows).toHaveLength(2);
+  const first = [...rows[0].matchAll(/<td[^>]*>(.*?)<\/td>/g)].map(match => match[1]);
+  expect(first[0]).toContain('Before opening bid');
+  expect(first[1]).toContain('Before opening bid');
+  expect(first[2]).toContain('1♥');
+  expect(first[3]).toContain('>2</sup>');
+  expect(rows[1]).toContain('2♥');
+  expect(rows[1]).toContain('>3</sup>');
+});
+
+it('places opening blanks using the replay hand alignment rather than the actual compass seat', () => {
+  const auction: AuctionEntry[] = [{ seat: 'N', bid: { type: 'pass' } }, { seat: 'E', bid: { type: 'pass' } }];
+  const html = renderToStaticMarkup(<AuctionComparison seatNames={names}
+    replaySeats={{ N: 'S', E: 'W', S: 'N', W: 'E' }}
+    original={detail(auction)} replay={detail(auction)} />);
+  const body = [...html.matchAll(/<tbody>(.*?)<\/tbody>/g)][1][1];
+  const cells = [...body.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map(match => match[1]);
+  expect(cells[0]).toContain('Before opening bid');
+  expect(cells[1]).toContain('Before opening bid');
+  expect(cells[2]).toContain('>1</sup>');
+  expect(cells[3]).toContain('>2</sup>');
 });

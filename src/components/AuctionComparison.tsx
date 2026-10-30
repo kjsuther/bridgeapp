@@ -16,13 +16,31 @@ function callsBySeat(auction: AuctionEntry[]) {
     .filter(entry => entry.seat === seat)])) as Record<Seat, (AuctionEntry & { number: number })[]>;
 }
 
+function auctionRows(auction: AuctionEntry[], layout: Record<Seat, Seat>) {
+  type Cell = AuctionEntry & { number: number; turn: number };
+  const rows: (Cell | undefined)[][] = [];
+  const turns: Record<Seat, number> = { N: 0, E: 0, S: 0, W: 0 };
+  let row = 0;
+  let previousColumn = -1;
+  auction.forEach((entry, index) => {
+    const column = SEATS.findIndex(position => layout[position] === entry.seat);
+    if (column <= previousColumn) row++;
+    rows[row] ??= Array(4);
+    rows[row][column] = { ...entry, number: index + 1, turn: turns[entry.seat]++ };
+    previousColumn = column;
+  });
+  return rows;
+}
+
 export function AuctionComparison({ original, replay, seatNames, replaySeats = NORMAL_REVIEW_SEATS }: {
   original: HandDetail; replay: HandDetail; seatNames: SeatNames; replaySeats?: Record<Seat, Seat>;
 }) {
   const calls = [callsBySeat(original.auction), callsBySeat(replay.auction)];
-  const rounds = Math.max(0, ...SEATS.flatMap(seat => [calls[0][seat].length, calls[1][replaySeats[seat]].length]));
+  const rows = [auctionRows(original.auction, NORMAL_REVIEW_SEATS), auctionRows(replay.auction, replaySeats)];
+  const rounds = Math.max(...rows.map(auction => auction.length));
+  const decisions = Math.max(0, ...SEATS.flatMap(seat => [calls[0][seat].length, calls[1][replaySeats[seat]].length]));
   let differences = 0;
-  for (let round = 0; round < rounds; round++) for (const seat of SEATS) {
+  for (let round = 0; round < decisions; round++) for (const seat of SEATS) {
     const left = calls[0][seat][round];
     const right = calls[1][replaySeats[seat]][round];
     if ((left ? bidLabel(left.bid) : '') !== (right ? bidLabel(right.bid) : '')) differences++;
@@ -32,7 +50,7 @@ export function AuctionComparison({ original, replay, seatNames, replaySeats = N
       <h2 className="text-lg font-semibold text-white">Bidding comparison</h2>
       <span className="text-sm text-amber-200">{differences === 0 ? 'Identical bids for matching hands' : `${differences} differing ${differences === 1 ? 'decision' : 'decisions'}`}</span>
     </div>
-    <p className="mb-4 text-sm text-slate-300">Each column follows the same original hand in both auctions. Rows show that hand’s first, second, and subsequent calls. Small numbers give the actual auction order. Amber cells mark differences; — means no further call.</p>
+    <p className="mb-4 text-sm text-slate-300">Each column follows the same original hand in both auctions. Read bids left to right, then down; blank opening cells come before the first bidder. Small numbers show auction order. Amber marks a different call for the matching hand; — means no further call.</p>
     <div className="overflow-x-auto">
       <div className="grid min-w-[720px] grid-cols-2 gap-4">
         {([original, replay] as const).map((detail, side) => {
@@ -49,12 +67,14 @@ export function AuctionComparison({ original, replay, seatNames, replaySeats = N
                 <div className="mt-1 text-[10px] font-normal text-slate-500">Original {position} hand</div>
               </th>;
             })}</tr></thead>
-            <tbody>{Array.from({ length: rounds }, (_, round) => <tr key={round}>{SEATS.map(position => {
-              const own = calls[side][layout[position]][round];
-              const other = calls[1 - side][side === 0 ? replaySeats[position] : position][round];
-              const different = (own ? bidLabel(own.bid) : '') !== (other ? bidLabel(other.bid) : '');
+            <tbody>{Array.from({ length: rounds }, (_, round) => <tr key={round}>{SEATS.map((position, column) => {
+              const own = rows[side][round]?.[column];
+              const other = own ? calls[1 - side][side === 0 ? replaySeats[position] : position][own.turn] : undefined;
+              const different = !!own && bidLabel(own.bid) !== (other ? bidLabel(other.bid) : '');
+              const openingColumn = detail.auction.length ? SEATS.findIndex(pos => layout[pos] === detail.auction[0].seat) : 0;
+              const beforeOpening = round === 0 && column < openingColumn;
               return <td key={position} className={`border-b border-slate-700 p-3 ${different ? 'bg-amber-500/15 text-amber-100' : ''}`}>
-                {own ? <><span className="text-base font-semibold">{bidLabel(own.bid)}</span><sup className="ml-1 text-[10px] text-slate-400">{own.number}</sup></> : <span aria-label="No further call">—</span>}
+                {own ? <><span className="text-base font-semibold">{bidLabel(own.bid)}</span><sup className="ml-1 text-[10px] text-slate-400">{own.number}</sup></> : beforeOpening ? <span className="sr-only">Before opening bid</span> : <span aria-label="No further call">—</span>}
                 {different && <span className="block text-[10px] text-amber-300">Different</span>}
               </td>;
             })}</tr>)}</tbody>
