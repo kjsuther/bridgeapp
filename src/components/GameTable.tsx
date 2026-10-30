@@ -6,7 +6,7 @@ import { HandDisplay, PlayedCard, CardBackFan, DummyHandDisplay, type HandLayout
 import { BiddingPanel, AuctionHistory } from '@/components/BiddingPanel';
 import { BiddingReference } from '@/components/BiddingReference';
 import { ScorePanel, NextHandButton } from '@/components/ScorePanel';
-import { DoubleDummyReview } from '@/components/DoubleDummyReview';
+import { openDoubleDummyWindow } from '@/lib/historyWindow';
 import { HandSummary } from '@/components/HandSummary';
 import { useCardPlayAnimation } from '@/hooks/useCardPlayAnimation';
 import { sortHand, dummySeat, isVulnerable } from '@/context/GameContext';
@@ -109,7 +109,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     playState, phase, passedOut, isMyTurn, currentSeat,
     legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading,
     handRole, matchState,
-    newHandsBeforeReplay, replaysStarted, hostId, handNumber,
+    newHandsBeforeReplay, replaysStarted, hostId, handNumber, currentHandId,
   } = game;
 
   const myUserId = profile?.id ?? '';
@@ -669,7 +669,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                       <button onClick={() => setSummaryOpen(true)} className="rounded-lg bg-slate-700 px-4 py-2 text-sm text-white">
                         Review result and starting hands
                       </button>
-                      <DoubleDummyReview />
+                      {contract && currentHandId && <button onClick={() => openDoubleDummyWindow(currentHandId)} className="rounded-lg bg-amber-700 px-4 py-2 text-sm text-white">Open double-dummy analysis</button>}
                       <NextHandButton />
                     </>
                   )}

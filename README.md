@@ -87,8 +87,7 @@ Dots use declarer's final trick total minus the tricks required by the contract:
 red negative values for undertricks, green `=` for exactly making, and green
 positive values for overtricks. Center cards retain the result immediately after
 that card was played, before any later mistakes. No database migration is needed
-for this comparison change. The separate after-game Analyze Hand panel continues
-to use the existing solver.
+for this comparison change. Completed-hand analysis opens in its own window and uses this same DDS worker engine.
 
 `npm test` checks the DDS adapter against independent exhaustive endgames in
 all strains and seat positions, forced plays, equivalent cards, center-card
@@ -139,3 +138,21 @@ Card play uses one animation of the actual card from its measured hand position.
 Hidden opponents use the card-back position. Server echoes, stale snapshots, and
 undo/replay of the same physical card do not replay its animation during that
 hand. Animation preferences and reduced-motion settings are respected.
+
+## Completed-hand analysis and independent progression
+
+The result dialog and table result controls offer a separate double-dummy window
+for the specific completed hand. Its fixed hand ID remains unchanged even when
+new hands are dealt. Step through the recorded play or use the position slider.
+Passed-out hands have no contract to analyze. Completed-hand reads retain the
+existing database authorization checks and require all four starting hands.
+
+Replay comparisons align matching 13-card sets to the original screen positions,
+including the center trick. Both panels use the original suit display order.
+Seat labels, contracts, scores, and all solver inputs remain the actual values.
+
+Moving on is per player: another player dealing does not replace the hand being
+reviewed in the current game window. Click Continue to next hand to deal, or Join
+next hand to catch up to a hand already dealt. Cameras/audio stay connected.
+No additional database migration is required. Reloading the browser or leaving
+and re-entering a table loads the latest hand rather than restoring an old review.

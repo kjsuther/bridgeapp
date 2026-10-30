@@ -7,6 +7,7 @@ import { TableSetup } from '@/components/TableSetup';
 import { GameTable } from '@/components/GameTable';
 import { GameProvider } from '@/context/GameContext';
 import { History } from '@/components/History';
+import { CompletedHandAnalysis } from '@/components/CompletedHandAnalysis';
 import { openHistoryWindow } from '@/lib/historyWindow';
 import { AdminDashboard } from '@/components/AdminDashboard';
 
@@ -15,6 +16,7 @@ type View =
   | { type: 'table-setup'; tableId: string }
   | { type: 'game'; tableId: string; gameId: string }
   | { type: 'history' }
+  | { type: 'hand-analysis'; handId: string }
   | { type: 'table-history'; tableId: string; gameId?: string; returnToGame?: boolean }
   | { type: 'admin' };
 
@@ -22,6 +24,7 @@ function AppContent() {
   const { user, loading } = useAuth();
   const [view, setView] = useState<View>(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'double-dummy' && params.get('handId')) return { type: 'hand-analysis', handId: params.get('handId')! };
     if (params.get('view') !== 'history') return { type: 'lobby' };
     const tableId = params.get('tableId');
     return tableId
@@ -87,6 +90,8 @@ function AppContent() {
       </GameProvider>
     );
   }
+
+  if (view.type === 'hand-analysis') return <CompletedHandAnalysis handId={view.handId} />;
 
   if (view.type === 'history') {
     return <History onBack={closeHistory} />;

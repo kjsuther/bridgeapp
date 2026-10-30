@@ -21,7 +21,7 @@ it('shows all 52 originally dealt cards after a hand, including a passed-out han
   expect(html).toContain('Hand 3 complete');
   expect(html).toContain('Hand passed out');
   expect(html.match(/data-card="/g)).toHaveLength(52);
-  expect(html).toContain('Deal Next Hand');
+  expect(html).toContain('Continue to next hand');
 });
 it('never renders the original-hands dialog during live play', () => {
   setup('playing');

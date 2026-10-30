@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { historyWindowUrl, openHistoryWindow } from './historyWindow';
+import { historyWindowUrl, openHistoryWindow, doubleDummyWindowUrl, openDoubleDummyWindow } from './historyWindow';
 
 afterEach(() => vi.unstubAllGlobals());
 it('creates a standalone history URL with the table and game, excluding unrelated query parameters', () => {
@@ -27,4 +27,16 @@ it('reports a blocked popup without replacing the game', () => {
   openHistoryWindow();
   expect(alert).toHaveBeenCalledOnce();
   expect(location.href).toBe('https://bridge.example/');
+});
+
+it('opens double-dummy analysis for a fixed completed hand without navigating the game', () => {
+  const popup = {opener: {}, focus: vi.fn()};
+  const open = vi.fn(() => popup);
+  const location = {href: 'https://bridge.example/?view=history&gameId=new-game'};
+  vi.stubGlobal('window', {open, location});
+  openDoubleDummyWindow('previous-hand');
+  expect(open).toHaveBeenCalledWith('https://bridge.example/?view=double-dummy&handId=previous-hand', 'bridge-double-dummy-previous-hand', expect.stringContaining('popup=yes'));
+  expect(popup.opener).toBeNull();
+  expect(new URL(doubleDummyWindowUrl(location.href, 'previous-hand')).searchParams.has('gameId')).toBe(false);
+  expect(location.href).toContain('new-game');
 });

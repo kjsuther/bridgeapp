@@ -3,10 +3,11 @@ import { useGame } from '@/context/GameContext';
 import { SEATS } from '@/types/bridge';
 import { sortHand } from '@/lib/dealing';
 import { HandDisplay } from './CardDisplay';
+import { openDoubleDummyWindow } from '@/lib/historyWindow';
 import { ScorePanel, NextHandButton } from './ScorePanel';
 
 export function HandSummary({ onClose }: { onClose: () => void }) {
-  const { handNumber, players, deal, contract, phase } = useGame();
+  const { handNumber, players, deal, contract, phase, currentHandId, nextHandAvailable } = useGame();
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     dialog.current?.showModal();
@@ -31,7 +32,11 @@ export function HandSummary({ onClose }: { onClose: () => void }) {
           </section>
         ))}
       </div>
-      <div className="mt-5"><NextHandButton /></div>
+      <div className="mt-5 flex flex-wrap gap-3">
+        {contract && currentHandId && <button onClick={() => openDoubleDummyWindow(currentHandId)} className="rounded-lg bg-amber-700 px-4 py-2">Open double-dummy analysis</button>}
+        <NextHandButton />
+      </div>
+      <p className="mt-3 text-sm text-slate-300">{nextHandAvailable ? 'A newer hand is available. Join when you are ready; this summary stays open until you choose to move on.' : 'Take your time reviewing. Continue when you are ready; other players keep their own summaries.'}</p>
     </dialog>
   );
 }

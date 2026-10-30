@@ -43,6 +43,9 @@ interface GameContextValue {
   lastScore: HandScore | null;
   passedOut: boolean;
   handNumber: number;
+  currentHandId: string | null;
+  nextHandAvailable: boolean;
+  nextHandBusy: boolean;
   isMyTurn: boolean;
   currentSeat: Seat | null;
   legalCards: Card[];
@@ -100,7 +103,11 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const [hostId, setHostId] = useState<string | null>(null);
 
   const loadRequestRef = useRef(0);
-  const loadedHandRef = useRef<{ id: string; number: number; version: number } | null>(null);
+  const loadedHandRef = useRef<{ id: string; number: number; version: number; completed: boolean } | null>(null);
+  const releasedHandRef = useRef<string | null>(null);
+  const advancingRef = useRef(false);
+  const [nextHandAvailable, setNextHandAvailable] = useState(false);
+  const [nextHandBusy, setNextHandBusy] = useState(false);
 
   const updateHand = useCallback(async (
     handId: string,
@@ -121,6 +128,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     handVersionRef.current = Number(nextVersion);
     if (loadedHandRef.current?.id === handId) {
       loadedHandRef.current.version = Math.max(loadedHandRef.current.version, Number(nextVersion));
+      if (patch.phase === 'scoring' || patch.phase === 'finished') loadedHandRef.current.completed = true;
     }
     return true;
   }, []);
@@ -233,14 +241,29 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     };
 
     if (hands && hands.length > 0) {
-      const hand = hands[0];
+      let hand = hands[0];
+      const previous = loadedHandRef.current;
+      let newerHandWaiting = false;
+      if (previous?.completed && hand.hand_number > previous.number && releasedHandRef.current !== previous.id) {
+        setNextHandAvailable(true);
+        return;
+      }
+      // A fast next deal can arrive before this client receives the final play.
+      // Load that client's completed hand first so its summary is never skipped.
+      if (previous && hand.hand_number > previous.number && releasedHandRef.current !== previous.id) {
+        const { data: completed, error: completedError } = await supabase.from('hands')
+          .select('*').eq('id', previous.id).maybeSingle();
+        if (request !== loadRequestRef.current) return;
+        if (completedError || !completed || !['scoring', 'finished'].includes(completed.phase)) return;
+        hand = completed;
+        newerHandWaiting = true;
+      }
       const { data: visibleHands, error: visibleHandsError } = await supabase
         .from('hand_cards')
         .select('seat, cards')
         .eq('hand_id', hand.id);
 
       if (request !== loadRequestRef.current) return;
-      const previous = loadedHandRef.current;
       const version = Number(hand.state_version ?? 0);
       if (previous && (hand.hand_number < previous.number || (hand.id === previous.id && version < previous.version))) return;
       if (visibleHandsError) {
@@ -249,7 +272,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       }
 
       applyTableState();
-      loadedHandRef.current = { id: hand.id, number: hand.hand_number, version };
+      loadedHandRef.current = { id: hand.id, number: hand.hand_number, version, completed: hand.phase === 'scoring' || hand.phase === 'finished' };
+      setNextHandAvailable(newerHandWaiting);
       handVersionRef.current = version;
       const visibleDeal: Record<string, string[]> = { N: [], E: [], S: [], W: [] };
       for (const row of visibleHands ?? []) {
@@ -885,26 +909,32 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   }, [mySeat, currentHandId, playState, contract, bidUndoRequest, auction, phase, updateHand]);
 
   const startNewHand = useCallback(async () => {
-    if (!mySeat) return;
-
-    const nextHand = handNumber + 1;
-    setHandNumber(nextHand);
-    setAuction([]);
-    setContract(null);
-    setPlayState(null);
-    setPhase('bidding');
-    setLastScore(null);
-    setPassedOut(false);
-    setBidUndoRequest(null);
-
-    await supabase
-      .from('games')
-      .update({ hand_number: nextHand })
-      .eq('id', gameId);
-
-    await createNewHand(nextHand);
-    await loadGameState();
-  }, [mySeat, handNumber, gameId, createNewHand, loadGameState]);
+    if (!mySeat || !currentHandId || advancingRef.current || (phase !== 'scoring' && phase !== 'finished')) return;
+    advancingRef.current = true;
+    setNextHandBusy(true);
+    releasedHandRef.current = currentHandId;
+    try {
+      const { data: latest, error: latestError } = await supabase.from('hands')
+        .select('id, hand_number').eq('game_id', gameId)
+        .order('hand_number', { ascending: false }).limit(1).maybeSingle();
+      if (latestError) throw latestError;
+      if (!latest || latest.hand_number <= handNumber) {
+        const nextHand = handNumber + 1;
+        const created = await createNewHand(nextHand);
+        if (created) {
+          await supabase.from('games').update({ hand_number: nextHand })
+            .eq('id', gameId).lt('hand_number', nextHand);
+        }
+      }
+      await loadGameState();
+    } catch {
+      setError('Could not join the next hand. Please try again. Your completed hand is still available.');
+    } finally {
+      if (loadedHandRef.current?.id === currentHandId) releasedHandRef.current = null;
+      advancingRef.current = false;
+      setNextHandBusy(false);
+    }
+  }, [mySeat, currentHandId, phase, handNumber, gameId, createNewHand, loadGameState]);
 
   // Derived state
   const currentSeat = phase === 'bidding'
@@ -968,6 +998,9 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     lastScore,
     passedOut,
     handNumber,
+    currentHandId,
+    nextHandAvailable,
+    nextHandBusy,
     isMyTurn,
     currentSeat,
     legalCards,
