@@ -53,13 +53,14 @@ function legalCardsForPosition(hand: Card[], playedCards: TrickCard[]): Card[] {
 }
 
 export function ComparisonHandPanel({
-  title, subtitle, detail, cardIndex, accent, seatNames, displaySeats = NORMAL_REVIEW_SEATS, displayTrumpStrain,
+  title, subtitle, detail, cardIndex, accent, seatNames, displaySeats = NORMAL_REVIEW_SEATS, displayTrumpStrain, showAuction = true,
 }: {
   title: string;
   subtitle: string;
   detail: HandDetail;
   cardIndex: number;
   accent: 'emerald' | 'blue';
+  showAuction?: boolean;
   seatNames: SeatNames;
   displaySeats?: Record<Seat, Seat>;
   displayTrumpStrain?: string;
@@ -267,7 +268,7 @@ export function ComparisonHandPanel({
           )}
         </div>
 
-        <div className="mt-3 pt-3 border-t border-slate-700/30">
+        {showAuction && <div className="mt-3 pt-3 border-t border-slate-700/30">
           <div className="text-xs text-slate-500 mb-1">Auction</div>
           <div className="flex flex-wrap gap-1">
             {detail.auction.map((entry, i) => (
@@ -276,7 +277,7 @@ export function ComparisonHandPanel({
               </span>
             ))}
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );

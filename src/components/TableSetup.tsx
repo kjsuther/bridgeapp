@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { createLiveRefresh } from '@/lib/liveRefresh';
+import { assignSeatByEmail } from '@/lib/seatAssignment';
 import { useAuth } from '@/context/AuthContext';
 import type { Seat } from '@/types/bridge';
 import { SEATS, SUIT_SYMBOLS } from '@/types/bridge';
@@ -19,12 +20,6 @@ interface SeatAssignment {
   email: string | null;
 }
 
-interface ProfileOption {
-  id: string;
-  display_name: string;
-  email: string | null;
-}
-
 export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
   const { profile } = useAuth();
   const [tableName, setTableName] = useState('');
@@ -34,7 +29,6 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
   const [seats, setSeats] = useState<Record<Seat, SeatAssignment | null>>({
     N: null, E: null, S: null, W: null,
   });
-  const [allProfiles, setAllProfiles] = useState<ProfileOption[]>([]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [newHandsBeforeReplay, setNewHandsBeforeReplay] = useState(10);
@@ -107,11 +101,6 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
       });
       setSeats(seatMap);
     }
-    const { data: profileOptions } = await supabase
-      .from('profiles')
-      .select('id, display_name, email')
-      .order('display_name', { ascending: true });
-    if (profileOptions) setAllProfiles(profileOptions as ProfileOption[]);
   }, [tableId, onGameStart]);
 
   useEffect(() => {
@@ -146,38 +135,24 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
     };
   }, [tableId, loadState]);
 
-  const assignSeat = async (seat: Seat, userId: string | null) => {
-    if (!isHost) return;
+  const assignSeat = async (seat: Seat, email: string | null) => {
+    if (!isHost || busy || tableStatus === 'playing') return;
     setBusy(true);
-
-    if (userId === null) {
-      await supabase
-        .from('table_players')
-        .delete()
-        .eq('table_id', tableId)
-        .eq('seat', seat);
-    } else {
-      await supabase
-        .from('table_players')
-        .delete()
-        .eq('table_id', tableId)
-        .eq('user_id', userId);
-
-      if (seats[seat] && seats[seat]!.user_id !== userId) {
-        await supabase
-          .from('table_players')
-          .delete()
-          .eq('table_id', tableId)
-          .eq('seat', seat);
+    setActionError(null);
+    try {
+      if (email === null) {
+        const { error } = await supabase.from('table_players').delete()
+          .eq('table_id', tableId).eq('seat', seat);
+        if (error) throw new Error('Could not remove this player. Please try again.');
+      } else {
+        await assignSeatByEmail(tableId, seat, email);
       }
-
-      await supabase
-        .from('table_players')
-        .insert({ table_id: tableId, user_id: userId, seat });
+      await loadState();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not update this seat. Please try again.');
+    } finally {
+      setBusy(false);
     }
-
-    setBusy(false);
-    loadState();
   };
 
   const allSeatsFilled = SEATS.every((s) => seats[s] !== null);
@@ -227,19 +202,9 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
     W: 'border-blue-500/40 bg-blue-950/30',
   };
 
-  const getDropdownOptions = (currentSeat: Seat): ProfileOption[] => {
-    const seatedElsewhere = new Set<string>();
-    SEATS.forEach((s) => {
-      if (s !== currentSeat && seats[s]) {
-        seatedElsewhere.add(seats[s]!.user_id);
-      }
-    });
-    return allProfiles.filter((p) => !seatedElsewhere.has(p.id));
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900">
-      <div className="max-w-2xl mx-auto p-6">
+      <div className="max-w-4xl mx-auto p-6">
         <button
           onClick={onBack}
           className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-6"
@@ -254,7 +219,7 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
             <h1 className="text-2xl font-bold text-white">{tableName}</h1>
             <p className="text-sm text-slate-400">
               {isHost
-                ? 'Assign players to each seat, then start the table'
+                ? 'Enter the account email for each seat, including your own, then start the table'
                 : `Waiting for ${hostName} to assign seats and start the table...`}
             </p>
           </div>
@@ -262,18 +227,17 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
 
         <div className="bg-slate-900/50 rounded-2xl border border-slate-700/50 p-8">
           {actionError && (
-            <div className="mb-5 rounded-lg border border-red-500/30 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+            <div role="alert" className="mb-5 rounded-lg border border-red-500/30 bg-red-950/40 px-4 py-3 text-sm text-red-300">
               {actionError}
             </div>
           )}
-          <div className="grid grid-cols-3 gap-4 max-w-md mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
             {/* North */}
-            <div className="col-span-3">
+            <div className="sm:col-span-3">
               <SeatSlot
                 seat="N"
                 assignment={seats.N}
                 isHost={isHost}
-                options={getDropdownOptions('N')}
                 onAssign={(uid) => assignSeat('N', uid)}
                 colorClass={seatColors.N}
                 teamLabel="NS"
@@ -288,7 +252,6 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
                 seat="W"
                 assignment={seats.W}
                 isHost={isHost}
-                options={getDropdownOptions('W')}
                 onAssign={(uid) => assignSeat('W', uid)}
                 colorClass={seatColors.W}
                 teamLabel="EW"
@@ -298,7 +261,7 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
             </div>
 
             {/* Center table */}
-            <div className="flex flex-col items-center justify-center">
+            <div className="hidden sm:flex flex-col items-center justify-center text-slate-200">
               <div className="text-center">
                 <div className="text-4xl mb-1">{SUIT_SYMBOLS.S} {SUIT_SYMBOLS.H}</div>
                 <div className="text-4xl mb-2">{SUIT_SYMBOLS.D} {SUIT_SYMBOLS.C}</div>
@@ -312,7 +275,6 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
                 seat="E"
                 assignment={seats.E}
                 isHost={isHost}
-                options={getDropdownOptions('E')}
                 onAssign={(uid) => assignSeat('E', uid)}
                 colorClass={seatColors.E}
                 teamLabel="EW"
@@ -322,12 +284,11 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
             </div>
 
             {/* South */}
-            <div className="col-span-3">
+            <div className="sm:col-span-3">
               <SeatSlot
                 seat="S"
                 assignment={seats.S}
                 isHost={isHost}
-                options={getDropdownOptions('S')}
                 onAssign={(uid) => assignSeat('S', uid)}
                 colorClass={seatColors.S}
                 teamLabel="NS"
@@ -413,8 +374,7 @@ interface SeatSlotProps {
   seat: Seat;
   assignment: SeatAssignment | null;
   isHost: boolean;
-  options: ProfileOption[];
-  onAssign: (userId: string | null) => void;
+  onAssign: (email: string | null) => void;
   colorClass: string;
   teamLabel: string;
   busy: boolean;
@@ -425,7 +385,6 @@ function SeatSlot({
   seat,
   assignment,
   isHost,
-  options,
   onAssign,
   colorClass,
   teamLabel,
@@ -433,6 +392,7 @@ function SeatSlot({
   myUserId,
 }: SeatSlotProps) {
   const isMe = assignment?.user_id === myUserId;
+  const [email, setEmail] = useState('');
 
   return (
     <div className={`w-full p-4 rounded-xl border-2 transition-all ${colorClass}`}>
@@ -442,34 +402,26 @@ function SeatSlot({
       </div>
 
       {isHost ? (
-        <div className="flex min-w-0 items-center gap-2">
-          <select
-            value={assignment?.user_id ?? ''}
-            onChange={(e) => onAssign(e.target.value || null)}
-            disabled={busy}
-            className="min-w-0 w-full flex-1 px-3 py-2 bg-slate-900/70 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50"
-          >
-            <option value="">— Empty —</option>
-            {options.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.display_name}{p.email ? ` — ${p.email}` : ''}
-              </option>
-            ))}
-            {assignment && !options.find((o) => o.id === assignment.user_id) && (
-              <option value={assignment.user_id}>{assignment.display_name}{assignment.email ? ` — ${assignment.email}` : ''}</option>
-            )}
-          </select>
-          {assignment && (
-            <button
-              onClick={() => onAssign(null)}
-              disabled={busy}
-              className="p-1.5 text-slate-500 hover:text-red-400 transition-colors rounded"
-              title="Remove from seat"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+        assignment ? <div className="flex min-w-0 items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-white break-words">{assignment.display_name}</p>
+            <p className="text-xs text-slate-400 break-all">{assignment.email}</p>
+          </div>
+          <button onClick={() => onAssign(null)} disabled={busy}
+            className="p-1.5 text-slate-400 hover:text-red-400 disabled:opacity-50"
+            aria-label={`Remove player from ${seat}`}><X className="w-4 h-4" /></button>
+        </div> : <form className="flex min-w-0 flex-col gap-2" onSubmit={event => {
+          event.preventDefault();
+          onAssign(email);
+        }}>
+          <label htmlFor={`seat-email-${seat}`} className="text-xs text-slate-300">Player email</label>
+          <input id={`seat-email-${seat}`} type="email" required value={email}
+            onChange={event => setEmail(event.target.value)} disabled={busy}
+            placeholder="name@example.com" autoCapitalize="none" spellCheck={false}
+            className="min-w-0 w-full px-2 py-2 bg-slate-900/70 border border-slate-700 rounded-lg text-white text-sm disabled:opacity-50" />
+          <button type="submit" disabled={busy || !email.trim()}
+            className="rounded-lg bg-emerald-700 px-2 py-2 text-sm text-white disabled:opacity-40">Assign seat</button>
+        </form>
       ) : (
         <div className="text-center py-2">
           {assignment ? (

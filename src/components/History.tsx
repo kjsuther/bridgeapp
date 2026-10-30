@@ -1,3 +1,4 @@
+import { AuctionComparison } from './AuctionComparison';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -523,6 +524,8 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
           </div>
         </div>
 
+        <AuctionComparison original={original} replay={replay} seatNames={seatNames} replaySeats={replayLayout} />
+
         {/* Card-by-card navigation */}
         <div className="flex items-center justify-center gap-4 mb-4 bg-slate-800/60 rounded-xl border border-slate-700/50 p-3">
           <button
@@ -552,6 +555,7 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
         {/* Side-by-side comparison */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <ComparisonHandPanel
+            showAuction={false}
             title="Original"
             subtitle="N+S vs E+W (normal seats)"
             detail={original}
@@ -560,6 +564,7 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
             seatNames={seatNames}
           />
           <ComparisonHandPanel
+            showAuction={false}
             title="Replay (Aligned)"
             subtitle="Cards aligned to original; labels show actual seats"
             displaySeats={replayLayout}

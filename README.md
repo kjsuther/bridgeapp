@@ -4,6 +4,17 @@
 
 A four-player rubber bridge table built with React, WebRTC, and Supabase.
 
+Table hosts assign each seat by entering the player's existing account email,
+including their own. Player dropdowns and full-account-list loading are removed.
+Email matching ignores case and surrounding spaces; unknown accounts and duplicate
+seats produce an error without moving an already seated player. This assigns
+existing accounts only and does not send invitation emails.
+
+Board comparison includes paired auction tables above the card analysis. Columns
+follow matching original/replay hands, with actual seat and player labels. Each
+row shows that hand's next call; small numbers retain chronological auction order.
+Differing calls and calls absent from the other auction are labeled and highlighted.
+
 ## Local development
 
 ```bash
