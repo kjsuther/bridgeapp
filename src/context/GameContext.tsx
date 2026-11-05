@@ -11,7 +11,7 @@ import {
   sideOfSeat, isVulnerable, SEATS,
 } from '@/types/bridge';
 import {
-  jsonToDeal, sortHand, dealerForHand, vulnerabilityForHand, swapSeatForReplay,
+  jsonToDeal, sortHand, vulnerabilityForHand,
   swapVulnerabilityForReplay,
 } from '@/lib/dealing';
 import {
@@ -61,6 +61,7 @@ interface GameContextValue {
   respondUndo: (accept: boolean) => Promise<void>;
   startNewHand: () => Promise<void>;
   handRole: HandRole;
+  replayOfHandNumber: number | null;
   matchState: MatchState;
   newHandsBeforeReplay: number;
   replaysStarted: boolean;
@@ -99,6 +100,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const [boardPointDifference, setBoardPointDifference] = useState<number | null>(null);
   const [bidUndoRequest, setBidUndoRequest] = useState<UndoRequest | null>(null);
   const [handRole, setHandRole] = useState<HandRole>('original');
+  const [replayOfHandNumber, setReplayOfHandNumber] = useState<number | null>(null);
   const [matchState, setMatchState] = useState<MatchState>({
     totalImpsA: 0,
     totalImpsB: 0,
@@ -309,6 +311,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
       setBidUndoRequest((hand.bid_undo_request as UndoRequest | undefined) ?? null);
       setHandRole((hand.hand_role as HandRole | undefined) ?? 'original');
+      setReplayOfHandNumber(completedResult.data?.find(original => original.id === hand.original_hand_id)?.hand_number ?? null);
     } else {
       applyTableState();
     }
@@ -344,92 +347,55 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     };
   }, [gameId, loadGameState, tableId]);
 
-  // Determine the schedule for a hand: original vs replay, and which original to replay
-  const getHandSchedule = useCallback(async (hNum: number): Promise<{
-    role: HandRole;
-    originalHandId: string | null;
-    originalDealer: Seat | null;
-    originalVulnerability: Vulnerability | null;
-  }> => {
-    // Fetch all original hands that have been played (phase = scoring/finished)
-    // and don't have a replay yet
-    const { data: allHands } = await supabase
+  // Use the recorded dealer history and oldest compatible completed original.
+  const getHandSchedule = useCallback(async (hNum: number) => {
+    const { data: allHands, error: scheduleError } = await supabase
       .from('hands')
       .select('id, hand_number, hand_role, phase, original_hand_id, dealer, vulnerability')
       .eq('game_id', gameId)
       .order('hand_number', { ascending: true });
-
-    // Find original hands (hand_role = 'original') that have completed
-    // and don't have a corresponding replay yet
-    const completedOriginals: number[] = [];
-    const replayedOriginals = new Set<number>();
-
-    for (const h of allHands ?? []) {
-      if (h.hand_role === 'original' && (h.phase === 'scoring' || h.phase === 'finished')) {
-        completedOriginals.push(h.hand_number);
-      }
-      if (h.hand_role === 'replay' && h.original_hand_id) {
-        // Find the original hand_number for this replay
-        const orig = (allHands ?? []).find(o => o.id === h.original_hand_id);
-        if (orig) replayedOriginals.add(orig.hand_number);
-      }
-    }
-
-    const replayable = completedOriginals.filter(n => !replayedOriginals.has(n));
-    const sched = scheduleHand(hNum, newHandsBeforeReplay, replayable);
-
-    // If it's a replay, find the hand_id of the original (and its dealer/vulnerability)
-    let originalHandId: string | null = null;
-    let originalDealer: Seat | null = null;
-    let originalVulnerability: Vulnerability | null = null;
-    if (sched.role === 'replay' && sched.originalHandNumber !== null) {
-      const orig = (allHands ?? []).find(
-        h => h.hand_number === sched.originalHandNumber && h.hand_role === 'original'
-      );
-      originalHandId = orig?.id ?? null;
-      if (orig) {
-        originalDealer = orig.dealer as Seat;
-        originalVulnerability = orig.vulnerability as Vulnerability;
-      }
-    }
-
-    return { role: sched.role, originalHandId, originalDealer, originalVulnerability };
-  }, [gameId, newHandsBeforeReplay]);
+    if (scheduleError) throw new Error('Could not check earlier hands. Please try again.');
+    const schedule = scheduleHand(hNum, allHands ?? []);
+    const original = allHands?.find(hand => hand.id === schedule.originalHandId);
+    return {
+      ...schedule,
+      vulnerability: original ? swapVulnerabilityForReplay(original.vulnerability as Vulnerability) : vulnerabilityForHand(hNum),
+    };
+  }, [gameId]);
 
   // Create a new hand
   const createNewHand = useCallback(async (hNum: number) => {
     if (creatingHandRef.current) return null;
     creatingHandRef.current = true;
+    setError(null);
 
-    const { role, originalHandId, originalDealer, originalVulnerability } = await getHandSchedule(hNum);
+    try {
+      const { role, originalHandId, dealer: newDealer, vulnerability: vul } = await getHandSchedule(hNum);
 
-    // Dealer and vulnerability follow the cards' clockwise rotation on replay.
-    // The database also derives these values from the original board.
-    const firstDealer: Seat = 'N';
-    const newDealer = originalDealer ? swapSeatForReplay(originalDealer) : dealerForHand(hNum, firstDealer);
-    const vul: Vulnerability = originalVulnerability
-      ? swapVulnerabilityForReplay(originalVulnerability)
-      : vulnerabilityForHand(hNum);
+      const rpcParams: Record<string, unknown> = {
+        p_game_id: gameId,
+        p_hand_number: hNum,
+        p_dealer: newDealer,
+        p_vulnerability: vul,
+        p_hand_role: role,
+      };
+      if (role === 'replay' && originalHandId) {
+        rpcParams.p_original_hand_id = originalHandId;
+      }
 
-    const rpcParams: Record<string, unknown> = {
-      p_game_id: gameId,
-      p_hand_number: hNum,
-      p_dealer: newDealer,
-      p_vulnerability: vul,
-      p_hand_role: role,
-    };
-    if (role === 'replay' && originalHandId) {
-      rpcParams.p_original_hand_id = originalHandId;
+      const { data: hand, error: handError } = await supabase
+        .rpc('create_bridge_hand', rpcParams);
+
+      if (handError && handError.code !== '23505') {
+        setError('The hand could not be dealt. Please try again.');
+      }
+      return (hand as string | null) ?? null;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not deal the next hand. Please try again.');
+      return null;
+    } finally {
+      creatingHandRef.current = false;
     }
-
-    const { data: hand, error: handError } = await supabase
-      .rpc('create_bridge_hand', rpcParams);
-
-    creatingHandRef.current = false;
-    if (handError && handError.code !== '23505') {
-      setError('The hand could not be dealt. Please try again.');
-    }
-    return (hand as string | null) ?? null;
   }, [gameId, getHandSchedule]);
 
   // Any seated player may deal the first hand; the unique constraint prevents duplicates.
@@ -1018,6 +984,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     respondUndo,
     startNewHand,
     handRole,
+    replayOfHandNumber,
     matchState,
     newHandsBeforeReplay,
     replaysStarted,

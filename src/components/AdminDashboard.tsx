@@ -1,11 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { scheduleHand } from '@/lib/matchSchedule';
+import { scheduleHand, INITIAL_ORIGINAL_HANDS } from '@/lib/matchSchedule';
 import type { Contract, HandRole, Phase, Seat, Vulnerability } from '@/types/bridge';
-import { SUIT_SYMBOLS, STRAIN_SYMBOLS } from '@/types/bridge';
+import { SUIT_SYMBOLS } from '@/types/bridge';
 import { ArrowLeft, Shield, RefreshCw, Layers, AlertCircle, CheckCircle2, Circle, Repeat2 } from 'lucide-react';
 
-const ADMIN_EMAIL = 'kjsuther@gmail.com';
 
 interface AdminTableInfo {
   id: string;
@@ -49,7 +48,6 @@ export function AdminDashboard({ onBack }: AdminProps) {
   const [games, setGames] = useState<AdminGameInfo[]>([]);
   const [hands, setHands] = useState<AdminHandInfo[]>([]);
   const [tableNameMap, setTableNameMap] = useState<Record<string, string>>({});
-  const [tableGameMap, setTableGameMap] = useState<Record<string, string>>({});
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -66,10 +64,6 @@ export function AdminDashboard({ onBack }: AdminProps) {
     const tMap: Record<string, string> = {};
     (tablesData || []).forEach((t) => { tMap[t.id] = t.name; });
     setTableNameMap(tMap);
-
-    const gMap: Record<string, string> = {};
-    (gamesData || []).forEach((g) => { gMap[g.id] = g.table_id; });
-    setTableGameMap(gMap);
 
     setTables((tablesData || []) as AdminTableInfo[]);
     setGames((gamesData || []) as AdminGameInfo[]);
@@ -226,36 +220,8 @@ interface GameDetailProps {
 }
 
 function GameDetail({ game, table, hands, tableName }: GameDetailProps) {
-  const newHandsBeforeReplay = table.new_hands_before_replay;
-
-  // Determine which original hands are completed and replayable
-  const completedOriginals = useMemo(() => {
-    return hands
-      .filter(h => h.hand_role === 'original' && (h.phase === 'scoring' || h.phase === 'finished'))
-      .map(h => h.hand_number)
-      .sort((a, b) => a - b);
-  }, [hands]);
-
-  const replayedOriginals = useMemo(() => {
-    const replayed = new Set<number>();
-    for (const h of hands) {
-      if (h.hand_role === 'replay' && h.original_hand_id) {
-        const orig = hands.find(o => o.id === h.original_hand_id);
-        if (orig) replayed.add(orig.hand_number);
-      }
-    }
-    return replayed;
-  }, [hands]);
-
-  const replayableOriginals = useMemo(() => {
-    return completedOriginals.filter(n => !replayedOriginals.has(n));
-  }, [completedOriginals, replayedOriginals]);
-
-  // Next hand preview
-  const nextHandNumber = game.hand_number + 1;
-  const nextSchedule = useMemo(() => {
-    return scheduleHand(nextHandNumber, newHandsBeforeReplay, replayableOriginals);
-  }, [nextHandNumber, newHandsBeforeReplay, replayableOriginals]);
+  const nextHandNumber = Math.max(game.hand_number, ...hands.map(hand => hand.hand_number)) + 1;
+  const nextSchedule = useMemo(() => scheduleHand(nextHandNumber, hands), [nextHandNumber, hands]);
 
   // Group hands into original/replay pairs for display
   const handPairs = useMemo(() => {
@@ -296,7 +262,7 @@ function GameDetail({ game, table, hands, tableName }: GameDetailProps) {
             <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
               <span>Game status: <span className="text-slate-300">{game.status}</span></span>
               <span>Current hand: <span className="text-slate-300">{game.hand_number}</span></span>
-              <span>Replays after: <span className="text-slate-300">{newHandsBeforeReplay} hands</span></span>
+              <span>Replays after: <span className="text-slate-300">{INITIAL_ORIGINAL_HANDS} initial hands; then oldest dealer-compatible original</span></span>
             </div>
           </div>
           {table.match_board_number > 0 && (
@@ -318,7 +284,7 @@ function GameDetail({ game, table, hands, tableName }: GameDetailProps) {
         <div className="bg-slate-900/50 rounded-lg border border-slate-700/40 p-4">
           <div className="flex items-center gap-2 mb-2">
             <AlertCircle className="w-4 h-4 text-amber-400" />
-            <span className="text-sm font-medium text-amber-300">Next Deal Preview (Hand {nextHandNumber})</span>
+            <span className="text-sm font-medium text-amber-300">Next Deal Preview (Hand {nextHandNumber}, dealer {nextSchedule.dealer})</span>
           </div>
           {nextSchedule.role === 'original' ? (
             <div className="text-sm text-slate-300">
@@ -353,7 +319,7 @@ function GameDetail({ game, table, hands, tableName }: GameDetailProps) {
       {/* Hand pairs list */}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
-          Hands ({hands.length} total, {replayedOriginals.size} replayed)
+          Hands ({hands.length} total, {new Set(hands.filter(hand => hand.hand_role === 'replay').map(hand => hand.original_hand_id)).size} replayed)
         </h3>
 
         {handPairs.map((pair, idx) => (

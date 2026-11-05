@@ -14,11 +14,11 @@ import { SEATS, SUIT_SYMBOLS, STRAIN_SYMBOLS, sideOfSeat } from '@/types/bridge'
 import { getLegalCards } from '@/lib/play';
 import { highCardPoints } from '@/lib/dealing';
 import { ProfileSettings } from '@/components/ProfileSettings';
-import { supabase } from '@/lib/supabase';
+import { INITIAL_ORIGINAL_HANDS } from '@/lib/matchSchedule';
 import {
   Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Settings, History as HistoryIcon, BookOpen,
 } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 interface GameTableProps {
@@ -96,7 +96,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     playState, phase, passedOut, isMyTurn, currentSeat,
     legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading,
     handRole,
-    newHandsBeforeReplay, replaysStarted, hostId, handNumber, currentHandId, lastCompletedHandId,
+    handNumber, currentHandId, lastCompletedHandId, replayOfHandNumber,
   } = game;
 
   const myUserId = profile?.id ?? '';
@@ -146,9 +146,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
   const [animToggleOpen, setAnimToggleOpen] = useState(false);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [fastAnimations, setFastAnimations] = useState(false);
-  const [replaySetting, setReplaySetting] = useState(newHandsBeforeReplay);
 
-  useEffect(() => { setReplaySetting(newHandsBeforeReplay); }, [newHandsBeforeReplay]);
   const currentTrick = playState?.currentTrick ?? [];
   const handComplete = phase === 'scoring' || phase === 'finished';
   const analysisHandId = handComplete && contract ? currentHandId : lastCompletedHandId;
@@ -256,7 +254,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     return peerStreams.get(userId) ?? null;
   };
 
-  const isHost = hostId === myUserId;
 
   const hasCardsPlayed = (playState?.currentTrick.length ?? 0) > 0 || (playState?.completedTricks.length ?? 0) > 0;
   const canRequestUndo = (() => {
@@ -295,7 +292,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
   const myHandCards = deal[mySeat];
   const myCardW = Math.max(44, computeHorizontalCardW(w - 40, edgeH - ZONE_PAD, myHandCards, 240));
-
 
   let dummyCardW = 40;
   if (dummy && isDummyRevealed && phase === 'playing') {
@@ -402,7 +398,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
               ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
               : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
           }`}>
-            {handRole === 'replay' ? 'Replay' : 'Original'}
+            {handRole === 'replay' ? (replayOfHandNumber ? `Replay of hand #${replayOfHandNumber}` : 'Replay') : 'Original'}
           </span>
           {contract && (
             <span className="text-slate-400">Contract: <span className="text-emerald-400 font-medium">
@@ -465,38 +461,9 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                     Fast play
                     <input type="checkbox" checked={fastAnimations} disabled={!animationsEnabled} onChange={(event) => setFastAnimations(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
                   </label>
-                  {isHost && (
-                    <div className="mt-3 border-t border-slate-700/50 pt-3">
-                      <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Table host only</p>
-                      <label className="flex items-center justify-between text-sm text-slate-300 py-2">
-                        <span className="whitespace-nowrap">New hands before replay</span>
-                        <select
-                          value={replaySetting}
-                          disabled={replaysStarted}
-                          onChange={(e) => {
-                            if (replaysStarted) return;
-                            const v = parseInt(e.target.value, 10);
-                            if (!isNaN(v)) {
-                              setReplaySetting(v);
-                              supabase
-                                .from('tables')
-                                .update({ new_hands_before_replay: v })
-                                .eq('id', tableId)
-                                .then();
-                            }
-                          }}
-                          className="w-16 px-1.5 py-1 bg-slate-800 border border-slate-600 rounded text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          {[4, 8, 12, 16, 20, 24, 28, 32].map((n) => (
-                            <option key={n} value={n}>{n}</option>
-                          ))}
-                        </select>
-                      </label>
-                      {replaysStarted && (
-                        <p className="text-[10px] text-slate-500 mt-1">Locked — replays have already started.</p>
-                      )}
-                    </div>
-                  )}
+                  <p className="mt-3 border-t border-slate-700 pt-3 text-xs leading-5 text-slate-300">
+                    Replay schedule: the first {INITIAL_ORIGINAL_HANDS} hands are fresh deals. After that, the dealer keeps advancing and the oldest compatible completed hand is replayed. If none match, a new hand is dealt.
+                  </p>
                 </div>
               </div>,
               document.body,
