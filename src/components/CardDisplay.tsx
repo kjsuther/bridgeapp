@@ -65,9 +65,9 @@ export function CardDisplay({ card, size = 'sm', cardWidth, onClick, disabled, h
       aria-label={`${card.rank}${card.suit}${badge ? `, ${badge}` : ''}`}
       className={`
         relative rounded flex-shrink-0 flex items-center justify-center p-0 border-0
-        transition-all duration-200 bg-white overflow-hidden shadow-sm
+        transition-[box-shadow,opacity] duration-200 bg-white overflow-hidden shadow-sm
         ${disabled ? 'cursor-default' : 'cursor-pointer hover:-translate-y-2'}
-        ${highlight ? '-translate-y-2' : ''}
+        ${highlight ? 'ring-2 ring-amber-400' : ''}
       `}
       style={{ width: w, height: h }}
     >
@@ -140,7 +140,7 @@ export function HandDisplay({
 }: HandDisplayProps) {
   if (hidden) {
     return (
-      <div className={`flex flex-col items-center gap-1 ${isTurn ? 'ring-2 ring-amber-400/50 rounded-lg p-1.5' : ''}`}>
+      <div className={`flex flex-col items-center gap-1 rounded-lg p-1.5 ${isTurn ? 'ring-2 ring-amber-400/50' : ''}`}>
         {label && <span className="text-xs text-slate-400 font-medium">{label}</span>}
         <CardBackFan size={size} cardWidth={cardWidth} />
       </div>
@@ -164,7 +164,7 @@ export function HandDisplay({
       : 0;
 
     return (
-      <div className={`flex flex-col items-center gap-1 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-2' : ''}`}>
+      <div className={`flex flex-col items-center gap-1 rounded-lg p-2 ${isTurn ? 'ring-2 ring-amber-400/60' : ''}`}>
         {label && <span className="text-xs font-semibold text-slate-200">{label}</span>}
         <div className="flex items-end justify-center" style={{ minWidth: totalWidth }}>
           {suits.map((suit, suitIdx) => bySuit[suit].length > 0 && (
@@ -196,7 +196,7 @@ export function HandDisplay({
   }
 
   return (
-    <div className={`flex flex-col gap-0.5 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-1.5' : ''}`}>
+    <div className={`flex flex-col gap-0.5 rounded-lg p-1.5 ${isTurn ? 'ring-2 ring-amber-400/60' : ''}`}>
       {label && (
         <span className={`text-xs font-semibold ${isDummy ? 'text-amber-400' : 'text-slate-200'}`}>
           {label}{isDummy && ' · Dummy'}
@@ -417,8 +417,8 @@ export function PlayedCard({ card, seat, cardWidth }: PlayedCardProps) {
   };
 
   return (
-    <div className={`transition-all duration-300 ${positionClasses[seat]}`}>
-      <CardDisplay card={card} size="xl" cardWidth={cardWidth} />
+    <div className={positionClasses[seat]}>
+      <CardDisplay card={card} size="xl" cardWidth={cardWidth} disabled />
     </div>
   );
 }
@@ -459,7 +459,7 @@ export function DummyHandDisplay({
   const cardW = cardWidth ?? CARD_WIDTH.xs;
 
   return (
-    <div className={`flex flex-col gap-0.5 transition-all ${isTurn ? 'ring-2 ring-amber-400/60 rounded-lg p-1.5' : ''}`}>
+    <div className={`flex flex-col gap-0.5 rounded-lg p-1.5 ${isTurn ? 'ring-2 ring-amber-400/60' : ''}`}>
       <span className="text-sm font-bold text-amber-400">Dummy</span>
       {layout === 'horizontal' ? (
         <HandDisplay

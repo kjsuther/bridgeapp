@@ -354,6 +354,7 @@ function TableHistory({
 
   const totalImpsA = boards.reduce((sum, b) => sum + b.imps, 0);
   const totalImpsB = boards.reduce((sum, b) => sum - b.imps, 0);
+  const totalPointsA = boards.reduce((sum, b) => sum + b.netPoints, 0);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900">
@@ -394,6 +395,7 @@ function TableHistory({
                 <span className="text-emerald-300">Team A: <span className="font-bold">{totalImpsA > 0 ? '+' : ''}{totalImpsA}</span></span>
                 <span className="text-blue-300">Team B: <span className="font-bold">{totalImpsB > 0 ? '+' : ''}{totalImpsB}</span></span>
               </div>
+              <p className="mt-2 text-sm text-amber-200">Raw point difference: Team A {totalPointsA > 0 ? '+' : ''}{totalPointsA} / Team B {-totalPointsA > 0 ? '+' : ''}{-totalPointsA}</p>
             </div>
 
             <div className="space-y-3">
@@ -521,6 +523,7 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
             <span className={`text-lg font-bold ${board.imps > 0 ? 'text-emerald-400' : board.imps < 0 ? 'text-blue-400' : 'text-slate-400'}`}>
               {board.imps > 0 ? '+' : ''}{board.imps} IMP
             </span>
+            <span className="text-sm text-amber-200">Raw point difference (Team A): {board.netPoints > 0 ? '+' : ''}{board.netPoints}</span>
           </div>
         </div>
 

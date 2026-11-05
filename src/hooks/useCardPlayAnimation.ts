@@ -32,13 +32,31 @@ export function useCardPlayAnimation(
         if (!source || !target || !target.animate) continue;
         const dest = target.getBoundingClientRect();
         if (!dest.width || !dest.height || !source.width) continue;
-        const animation = target.animate([
+        // A separate flight survives removal of the center card at the next trick.
+        // It also avoids competing with hover/turn styling on the real card.
+        const flight = target.cloneNode(true) as HTMLButtonElement;
+        flight.removeAttribute('data-card');
+        flight.setAttribute('data-card-flight', key);
+        flight.setAttribute('aria-hidden', 'true');
+        flight.disabled = true;
+        Object.assign(flight.style, {
+          position: 'fixed', left: `${dest.x}px`, top: `${dest.y}px`, width: `${dest.width}px`,
+          height: `${dest.height}px`, margin: '0', zIndex: '150', pointerEvents: 'none',
+          transformOrigin: 'top left', transition: 'none', transform: 'none', visibility: 'visible',
+        });
+        document.body.appendChild(flight);
+        const originalVisibility = target.style.visibility;
+        target.style.visibility = 'hidden';
+        const animation = flight.animate([
           { transform: `translate(${source.x - dest.x}px, ${source.y - dest.y}px) scale(${source.width / dest.width}, ${source.height / dest.height})` },
           { transform: 'translate(0, 0) scale(1, 1)' },
         ], { duration: fast ? 300 : 650, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
-        target.style.transformOrigin = 'top left';
         running.current.add(animation);
-        const release = () => { running.current.delete(animation); };
+        const release = () => {
+          running.current.delete(animation);
+          flight.remove();
+          target.style.visibility = originalVisibility;
+        };
         animation.onfinish = release;
         animation.oncancel = release;
       }
