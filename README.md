@@ -142,24 +142,35 @@ History opens in a separate window so the current table and its media connection
 stay mounted. Allow popups for the site if the browser blocks the history window.
 The history URL retains the selected table and game and uses the existing login.
 
-Each completed or passed-out hand automatically opens a result dialog with all
-four original 13-card hands. Close it to return to the table, or reopen it from
-the result controls. Realtime updates, reconnect/focus reads, and a visible-tab
+Each completed or passed-out hand stays on the table's result screen with all
+four original 13-card hands, without opening an additional dialog.
+Realtime updates, reconnect/focus reads, and a visible-tab
 five-second recovery read keep all players current. The existing database card
 visibility policies still control access; this update requires no new SQL.
 
-Card play uses one animation of the actual card from its measured hand position.
+Card play uses one animation of the card from its measured hand position. A
+temporary flight layer survives removal of the center card at the next trick.
+Card sizes use the original hand and turn outlines reserve constant padding,
+avoiding resizing and layout shifts as turns change. The table's resize observer
+attaches after loading, when the game area actually mounts.
 Hidden opponents use the card-back position. Server echoes, stale snapshots, and
 undo/replay of the same physical card do not replay its animation during that
 hand. Animation preferences and reduced-motion settings are respected.
 
 ## Completed-hand analysis and independent progression
 
-The result dialog and table result controls offer a separate double-dummy window
+The right sidebar and table result controls offer a separate double-dummy window
 for the specific completed hand. Its fixed hand ID remains unchanged even when
 new hands are dealt. Step through the recorded play or use the position slider.
 Passed-out hands have no contract to analyze. Completed-hand reads retain the
 existing database authorization checks and require all four starting hands.
+The last completed hand remains available while playing the next hand, including
+after a refresh. Narrow screens have the same action in the top bar.
+
+Turn sounds follow the player who can act: dummy's turn alerts declarer, and
+bidding alerts the actual bidder. Bidding also names the current player in a
+persistent turn indicator. IMPs remain in use; the scoreboard and history also
+show raw board/match point differences from existing completed comparison data.
 
 Replay comparisons align matching 13-card sets to the original screen positions,
 including the center trick. Both panels use the original suit display order.

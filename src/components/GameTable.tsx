@@ -7,7 +7,6 @@ import { BiddingPanel, AuctionHistory } from '@/components/BiddingPanel';
 import { BiddingReference } from '@/components/BiddingReference';
 import { ScorePanel, NextHandButton } from '@/components/ScorePanel';
 import { openDoubleDummyWindow } from '@/lib/historyWindow';
-import { HandSummary } from '@/components/HandSummary';
 import { useCardPlayAnimation } from '@/hooks/useCardPlayAnimation';
 import { sortHand, dummySeat, isVulnerable } from '@/context/GameContext';
 import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/bridge';
@@ -17,9 +16,9 @@ import { highCardPoints } from '@/lib/dealing';
 import { ProfileSettings } from '@/components/ProfileSettings';
 import { supabase } from '@/lib/supabase';
 import {
-  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Zap, Settings, History as HistoryIcon, BookOpen,
+  Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Settings, History as HistoryIcon, BookOpen,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 interface GameTableProps {
@@ -30,21 +29,26 @@ interface GameTableProps {
 
 type ViewSide = 'bottom' | 'left' | 'top' | 'right';
 function useContainerSize() {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const attach = useCallback((node: HTMLDivElement | null) => {
+    ref.current = node;
+    setElement(node);
+  }, []);
   const [size, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const el = ref.current;
+    const el = element;
     if (!el) return;
     const update = () => {
       const rect = el.getBoundingClientRect();
-      if (rect.width && rect.height) setSize({ width: rect.width, height: rect.height });
+      if (rect.width && rect.height) setSize(previous => previous.width === rect.width && previous.height === rect.height ? previous : { width: rect.width, height: rect.height });
     };
     update();
     const obs = new ResizeObserver(update);
     obs.observe(el);
     return () => obs.disconnect();
-  }, []);
-  return { ref, ...size };
+  }, [element]);
+  return { ref, attach, ...size };
 }
 
 function rotationFor(mySeat: Seat): Record<Seat, ViewSide> {
@@ -60,23 +64,6 @@ function handWidthFactor(hand: Card[]): number {
   if (hand.length === 0) return 1;
   const suits = new Set(hand.map(c => c.suit));
   return 1 + (hand.length - 1) * 0.32 + Math.max(0, suits.size - 1) * 0.1;
-}
-
-function suitColumnFactors(hand: Card[]) {
-  if (hand.length === 0) return { widthFactor: 1.08, heightFactor: 1.4 };
-  const bySuit: Record<string, Card[]> = {};
-  for (const c of hand) (bySuit[c.suit] ??= []).push(c);
-  const cols = Object.values(bySuit).filter(a => a.length > 0);
-  const numCols = cols.length || 1;
-  const maxColCards = Math.max(1, ...cols.map(a => a.length));
-  const widthFactor = numCols * 1.08 - 0.08;
-  const heightFactor = 1.4 * (1 + (maxColCards - 1) * 0.22);
-  return { widthFactor, heightFactor };
-}
-
-function computeSuitColumnCardW(zoneW: number, zoneH: number, hand: Card[], maxW = 120): number {
-  const { widthFactor, heightFactor } = suitColumnFactors(hand);
-  return Math.max(20, Math.min(zoneW / widthFactor, zoneH / heightFactor, maxW));
 }
 
 function computeSuitRowCardW(zoneW: number, zoneH: number, hand: Card[], maxW = 120): number {
@@ -108,8 +95,8 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     mySeat, players, deal, dealer, vulnerability, auction, contract,
     playState, phase, passedOut, isMyTurn, currentSeat,
     legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading,
-    handRole, matchState,
-    newHandsBeforeReplay, replaysStarted, hostId, handNumber, currentHandId,
+    handRole,
+    newHandsBeforeReplay, replaysStarted, hostId, handNumber, currentHandId, lastCompletedHandId,
   } = game;
 
   const myUserId = profile?.id ?? '';
@@ -117,7 +104,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     localStream, peerStreams, videoEnabled, audioEnabled, outputEnabled,
     toggleVideo, toggleAudio, toggleOutput, error: webrtcError,
   } = useWebRTC({ tableId, userId: myUserId, enabled: true });
-  const { ref: tableAreaRef, width: availW, height: availH } = useContainerSize();
+  const { ref: tableAreaRef, attach: attachTableArea, width: availW, height: availH } = useContainerSize();
 
   const seatToUserId: Record<Seat, string> = useMemo(() => {
     const map: Record<Seat, string> = { N: '', E: '', S: '', W: '' };
@@ -163,9 +150,8 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
   useEffect(() => { setReplaySetting(newHandsBeforeReplay); }, [newHandsBeforeReplay]);
   const currentTrick = playState?.currentTrick ?? [];
-  const [summaryOpen, setSummaryOpen] = useState(false);
   const handComplete = phase === 'scoring' || phase === 'finished';
-  useEffect(() => { setSummaryOpen(handComplete); }, [handComplete, handNumber]);
+  const analysisHandId = handComplete && contract ? currentHandId : lastCompletedHandId;
   const captureCardSource = useCardPlayAnimation(
     tableAreaRef, `${game.gameId}-${handNumber}`, playState, animationsEnabled, fastAnimations,
   );
@@ -304,16 +290,17 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
   const edgeH = (h - centerH) / 2;
   const edgeW = (w - centerW) / 2;
 
-  const ZONE_PAD = 8;
+  // Leave room for the seat label, turn outline, and hand padding.
+  const ZONE_PAD = 44;
 
-  const myHandCards = getHand(mySeat);
+  const myHandCards = deal[mySeat];
   const myCardW = Math.max(44, computeHorizontalCardW(w - 40, edgeH - ZONE_PAD, myHandCards, 240));
 
 
   let dummyCardW = 40;
   if (dummy && isDummyRevealed && phase === 'playing') {
     const dummySide = viewSides[dummy];
-    const dummyHandCards = getHand(dummy);
+    const dummyHandCards = deal[dummy];
     if (dummySide === 'top' || dummySide === 'bottom') {
       const zoneW = w - 40;
       const zoneH = edgeH - ZONE_PAD;
@@ -324,7 +311,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     }
   }
 
-  const otherHandCards = SEATS.filter(s => s !== mySeat && s !== dummy).map(s => getHand(s)).find(h => h.length > 0) || [];
+  const otherHandCards = SEATS.filter(s => s !== mySeat && s !== dummy).map(s => deal[s]).find(h => h.length > 0) || [];
   const otherHorizontalCardW = Math.max(36, computeHorizontalCardW(w - 40, edgeH - ZONE_PAD, otherHandCards, 150));
   const otherSideCardW = Math.max(36, Math.min(
     computeSuitRowCardW(edgeW - ZONE_PAD, centerH - ZONE_PAD, otherHandCards, 110),
@@ -343,7 +330,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     const isMe = seat === mySeat;
     const isDummySeatHere = dummy === seat && isDummyRevealed && phase === 'playing';
     const showHand = shouldShowHand(seat);
-    const isTurnNow = currentSeat === seat && phase === 'playing';
+    const isTurnNow = currentSeat === seat && (phase === 'playing' || phase === 'bidding');
     const layout: HandLayout = side === 'top' || side === 'bottom' ? 'horizontal' : 'side';
     const cardW = isMe ? myCardW : isDummySeatHere ? dummyCardW : layout === 'horizontal' ? otherHorizontalCardW : otherSideCardW;
 
@@ -393,10 +380,9 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
   return (
     <>
-    {handComplete && summaryOpen && <HandSummary onClose={() => setSummaryOpen(false)} />}
     <div className="h-dvh min-h-[28rem] overflow-hidden bg-gradient-to-br from-slate-900 via-emerald-950/80 to-slate-900 flex flex-col">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur border-b border-slate-700/50">
+      <div className="flex flex-wrap shrink-0 items-center justify-between gap-2 px-4 py-2.5 bg-slate-900/80 backdrop-blur border-b border-slate-700/50">
         <button
           onClick={onLeave}
           className="flex items-center gap-2 text-slate-400 hover:text-white text-sm transition-colors"
@@ -406,6 +392,9 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
         </button>
 
         <div className="flex items-center gap-3 text-xs">
+          {phase === 'bidding' && currentSeat && <span role="status" aria-live="polite" className="rounded-lg bg-amber-500/20 px-3 py-1 font-semibold text-amber-200">
+            {isMyTurn ? 'Your turn to bid' : `${seatToName[currentSeat] || currentSeat} (${currentSeat}) to bid`}
+          </span>}
           <span className="text-slate-400">Dealer: <span className="text-white font-medium">{dealer}</span></span>
           <span className="text-slate-400">Vul: <span className="text-white font-medium">{vulText}</span></span>
           <span className={`px-2 py-0.5 rounded-full font-medium ${
@@ -423,6 +412,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {analysisHandId && <button onClick={() => openDoubleDummyWindow(analysisHandId)} className="rounded-lg bg-amber-700 px-2.5 py-1.5 text-xs font-medium text-white lg:hidden">Last hand: double dummy</button>}
           <button
             onClick={onShowHistory}
             className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-600"
@@ -572,7 +562,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
       {/* Main game area */}
       <div className="flex-1 flex min-h-0">
         <div
-          ref={tableAreaRef}
+          ref={attachTableArea}
           className="flex-1 relative min-w-0 min-h-0 overflow-hidden bg-emerald-950/20"
           style={{
             display: 'grid',
@@ -606,7 +596,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                 <div className="flex flex-col items-center gap-2 bg-slate-900/70 backdrop-blur-sm rounded-2xl p-3 border border-slate-700/40 max-h-full overflow-hidden">
                   <div className="text-center shrink-0 flex items-center gap-2">
                     <p className="text-slate-300 text-sm font-medium">
-                      {isMyTurn ? 'Your turn to bid' : `Waiting for ${currentSeat} to bid...`}
+                      {isMyTurn ? 'Your turn to bid' : `Waiting for ${currentSeat ? seatToName[currentSeat] || currentSeat : ''} (${currentSeat}) to bid...`}
                     </p>
                     <button
                       onClick={() => setGuideOpen(true)}
@@ -647,11 +637,9 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                     <div className="text-slate-500 text-xs mt-1">
                       Trick {playState.trickNumber}
                     </div>
-                    {isMyTurn && (
-                      <div className="mt-2 text-amber-400 text-xs font-medium animate-pulse">
-                        Your turn to play
-                      </div>
-                    )}
+                    <div role="status" className="mt-2 text-amber-400 text-xs font-medium">
+                      {isMyTurn ? (currentSeat === dummy ? 'Your turn to play dummy' : 'Your turn to play') : `${seatToName[currentSeat === dummy ? contract!.declarer : currentSeat!] || currentSeat} to play${currentSeat === dummy ? ' dummy' : ''}`}
+                    </div>
                   </div>
                 </div>
               )}
@@ -665,10 +653,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                     </div>
                   ) : (
                     <>
-                      <ScorePanel />
-                      <button onClick={() => setSummaryOpen(true)} className="rounded-lg bg-slate-700 px-4 py-2 text-sm text-white">
-                        Review result and starting hands
-                      </button>
+                      <ScorePanel showMatch={false} />
                       {contract && currentHandId && <button onClick={() => openDoubleDummyWindow(currentHandId)} className="rounded-lg bg-amber-700 px-4 py-2 text-sm text-white">Open double-dummy analysis</button>}
                       <NextHandButton />
                     </>
@@ -765,6 +750,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
         {/* Right sidebar: scoreboard */}
         <div className="w-72 lg:w-80 xl:w-96 bg-slate-900/80 backdrop-blur border-l border-slate-700/50 p-3 hidden lg:block overflow-y-auto">
+          <button disabled={!analysisHandId} onClick={() => analysisHandId && openDoubleDummyWindow(analysisHandId)} className="mb-3 w-full rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">Last hand: double-dummy analysis</button>
           <ScorePanel />
           <div className="mt-3">
             {phase === 'playing' && playState && (
@@ -807,7 +793,7 @@ interface SeatBadgeProps {
 
 function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, playerName, hcp, children }: SeatBadgeProps) {
   return (
-    <div className={`relative transition-all ${isTurn ? 'ring-2 ring-amber-400 rounded-xl p-1' : ''}`}>
+    <div className={`relative rounded-xl p-1 ${isTurn ? 'ring-2 ring-amber-400' : ''}`}>
       <div className="mb-1 flex items-center gap-1 overflow-hidden rounded bg-slate-900/90 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-sm">
         <span className="shrink-0 text-emerald-300">{seatLabel}</span>
         <span className="truncate">{playerName}</span>

@@ -25,6 +25,7 @@ import {
   scoreHand,
 } from '@/lib/scoring';
 import { playTurnNotification } from '@/lib/sound';
+import { actingSeat } from '@/lib/turn';
 import { scheduleHand } from '@/lib/matchSchedule';
 import { computeImpResult, rawScoreForNS } from '@/lib/impScoring';
 
@@ -44,6 +45,9 @@ interface GameContextValue {
   passedOut: boolean;
   handNumber: number;
   currentHandId: string | null;
+  lastCompletedHandId: string | null;
+  matchPointDifference: number | null;
+  boardPointDifference: number | null;
   nextHandAvailable: boolean;
   nextHandBusy: boolean;
   isMyTurn: boolean;
@@ -73,7 +77,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   children: ReactNode;
 }) {
   const { profile } = useAuth();
-  const [gameId, setGameId] = useState<string>(initialGameId);
+  const [gameId] = useState<string>(initialGameId);
   const [mySeat, setMySeat] = useState<Seat | null>(null);
   const [players, setPlayers] = useState<TablePlayer[]>([]);
   const [deal, setDeal] = useState<Deal | null>(null);
@@ -90,6 +94,9 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const [error, setError] = useState<string | null>(null);
   const handVersionRef = useRef(0);
   const [currentHandId, setCurrentHandId] = useState<string | null>(null);
+  const [lastCompletedHandId, setLastCompletedHandId] = useState<string | null>(null);
+  const [matchPointDifference, setMatchPointDifference] = useState<number | null>(null);
+  const [boardPointDifference, setBoardPointDifference] = useState<number | null>(null);
   const [bidUndoRequest, setBidUndoRequest] = useState<UndoRequest | null>(null);
   const [handRole, setHandRole] = useState<HandRole>('original');
   const [matchState, setMatchState] = useState<MatchState>({
@@ -191,7 +198,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const loadGameState = useCallback(async () => {
     const request = ++loadRequestRef.current;
     // Fetch game, table, and latest hand in parallel
-    const [gameResult, tableResult, handsResult, replayResult] = await Promise.all([
+    const [gameResult, tableResult, handsResult, replayResult, completedResult] = await Promise.all([
       supabase
         .from('games')
         .select('*')
@@ -214,12 +221,20 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
         .eq('game_id', gameId)
         .eq('hand_role', 'replay')
         .limit(1),
+      supabase.from('hands').select('id, contract, phase, imp_result, hand_number, games!inner(table_id)')
+        .eq('games.table_id', tableId).in('phase', ['scoring', 'finished'])
+        .order('created_at', { ascending: false }),
     ]);
 
     if (request !== loadRequestRef.current) return;
     const game = gameResult.data;
     const tableData = tableResult.data;
     const hands = handsResult.data;
+    if (!completedResult.error && completedResult.data) {
+      const completed = completedResult.data.filter(row => row.phase === 'scoring' || row.phase === 'finished');
+      setLastCompletedHandId(completed.find(row => row.contract)?.id ?? null);
+      setMatchPointDifference(completed.reduce((sum, row) => sum + (Number((row.imp_result as { netPoints?: number } | null)?.netPoints) || 0), 0));
+    }
 
     if (!game) {
       setLoading(false);
@@ -280,9 +295,10 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
         visibleDeal[row.seat as Seat] = row.cards as string[];
       }
       setCurrentHandId(hand.id);
-      setContract(null);
-      setPlayState(null);
-      setLastScore(null);
+      setBoardPointDifference((hand.imp_result as { netPoints?: number } | null)?.netPoints ?? null);
+      setContract((hand.contract as Contract | null) ?? null);
+      setPlayState((hand.play_state as PlayState | null) ?? null);
+      setLastScore((hand.score as HandScore | null) ?? null);
       setPassedOut(hand.phase === 'finished' && !hand.contract);
       const loadedDeal = jsonToDeal(visibleDeal);
       setDeal(loadedDeal);
@@ -290,18 +306,6 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       setVulnerability(hand.vulnerability as Vulnerability);
       setAuction((hand.auction as AuctionEntry[]) || []);
       setPhase(hand.phase as Phase);
-
-      if (hand.contract) {
-        setContract(hand.contract as Contract);
-      }
-
-      if (hand.play_state) {
-        setPlayState(hand.play_state as PlayState);
-      }
-
-      if (hand.score) {
-        setLastScore(hand.score as HandScore);
-      }
 
       setBidUndoRequest((hand.bid_undo_request as UndoRequest | undefined) ?? null);
       setHandRole((hand.hand_role as HandRole | undefined) ?? 'original');
@@ -675,7 +679,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     setPhase(newPhase);
     setContract(newContract);
     if (newPhase === 'scoring') await loadGameState();
-  }, [mySeat, currentHandId, playState, deal, contract, vulnerability, lastScore, handRole, gameId, tableId, updateHand, loadGameState]);
+  }, [mySeat, currentHandId, playState, deal, contract, vulnerability, lastScore, handRole, tableId, updateHand, loadGameState]);
 
   // --- Undo logic ---
   // Any player on the side that played the last card may request an undo.
@@ -944,17 +948,16 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const isDeclarerSeat = contract?.declarer === mySeat;
   const dummySeatVal = contract ? dummySeat(contract.declarer) : null;
 
-  const isMyTurn = currentSeat === mySeat || (isDeclarerSeat && currentSeat === dummySeatVal);
-  const isMyOwnTurn = currentSeat === mySeat;
-
-  // Play a notification sound when it becomes my turn (not when it's dummy's turn)
-  const prevIsMyOwnTurnRef = useRef(false);
+  const isMyTurn = !!mySeat && actingSeat(phase, currentSeat, contract) === mySeat;
+  const turnKey = isMyTurn ? `${currentHandId}:${phase}:${auction.length}:${playState?.completedTricks.length ?? 0}:${playState?.currentTrick.length ?? 0}:${currentSeat}` : null;
+  // Notify the person who can act, including declarer when playing dummy.
+  const previousTurnRef = useRef<string | null>(null);
   useEffect(() => {
-    if (isMyOwnTurn && !prevIsMyOwnTurnRef.current) {
+    if (turnKey && turnKey !== previousTurnRef.current) {
       playTurnNotification();
     }
-    prevIsMyOwnTurnRef.current = isMyOwnTurn;
-  }, [isMyOwnTurn]);
+    previousTurnRef.current = turnKey;
+  }, [turnKey]);
 
   // Compute remaining cards per seat by removing played cards
   const remainingCards: Record<Seat, Card[]> = (() => {
@@ -999,6 +1002,9 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     passedOut,
     handNumber,
     currentHandId,
+    lastCompletedHandId,
+    matchPointDifference,
+    boardPointDifference,
     nextHandAvailable,
     nextHandBusy,
     isMyTurn,

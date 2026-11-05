@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createDeck } from '@/lib/dealing';
 import { createInitialPlayState } from '@/lib/play';
+import type { Seat } from '@/types/bridge';
 
 const harness = vi.hoisted(() => ({
   effects: [] as Array<() => void | (() => void)>,
@@ -34,7 +35,9 @@ import type { ReactElement } from 'react';
 type GameValues = ReturnType<typeof useGame>;
 
 let finished: boolean;
+let completedHistory: unknown[] | null;
 let currentHandNumber: number;
+let currentPlaySeat: Seat;
 let renders: Map<typeof harness.slots, () => GameValues>;
 let channels: Array<{ name: string; change: () => void; status: (s: string) => void }>;
 let cleanups: Array<() => void>;
@@ -67,7 +70,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('window', new EventTarget());
   vi.stubGlobal('document', Object.assign(new EventTarget(), { visibilityState: 'visible' }));
-  finished = false; currentHandNumber = 1; channels = []; cleanups = []; renders = new Map();
+  finished = false; completedHistory = null; currentHandNumber = 1; currentPlaySeat = 'E'; channels = []; cleanups = []; renders = new Map();
   harness.removeChannel.mockResolvedValue(undefined);
   harness.rpc.mockImplementation(async (_name: string, params: {p_hand_number: number}) => {
     if (currentHandNumber >= params.p_hand_number) return { data: null, error: { code: '23505' } };
@@ -86,11 +89,12 @@ beforeEach(() => {
   harness.from.mockImplementation((table: string) => {
     let replay = false;
     let single = false;
+    let history = false;
     let requestedHand: string | null = null;
     const query = {
       update() { return this; }, lt() { return this; },
       select() { return this; }, eq(key: string, value: string) { if (key === 'hand_role') replay = true; if (key === 'id' || key === 'hand_id') requestedHand = value; return this; },
-      in() { return this; }, order() { return this; }, limit() { return this; }, maybeSingle() { single = true; return this; },
+      in(key: string) { if (key === 'phase') history = true; return this; }, order() { return this; }, limit() { return this; }, maybeSingle() { single = true; return this; },
       then(resolve: (value: unknown) => unknown) {
         const handNumber = table === 'hands' && requestedHand === 'hand-1' ? 1 : currentHandNumber;
         const completed = finished || (requestedHand === 'hand-1' && currentHandNumber > 1);
@@ -98,12 +102,12 @@ beforeEach(() => {
           id: `hand-${handNumber}`, hand_number: handNumber, state_version: completed ? 2 : 1,
           dealer: 'N', vulnerability: 'none', phase: completed ? 'scoring' : handNumber > 1 ? 'bidding' : 'playing',
           contract: { level: 4, strain: 'H', declarer: 'S', doubled: 0, tricksMade: 10 },
-          play_state: createInitialPlayState('E'), auction: [], hand_role: 'original',
+          play_state: createInitialPlayState(currentPlaySeat), auction: [], hand_role: 'original',
           score: completed ? { summary: 'Made 4H' } : null,
         };
         const data = table === 'games' ? { id: 'game', hand_number: currentHandNumber }
           : table === 'tables' ? { match_board_number: 0, new_hands_before_replay: 8 }
-          : table === 'hands' ? (replay ? [] : single ? hand : [hand])
+          : table === 'hands' ? (history && completedHistory ? completedHistory : replay ? [] : single ? hand : [hand])
           : table === 'hand_cards' ? (completed ? cardRows : cardRows.filter(r => r.seat === 'S' || r.seat === 'N'))
           : table === 'table_players' ? seats.map(seat => ({ seat, user_id: `user-${seat}` }))
           : seats.map(seat => ({ id: `user-${seat}`, display_name: seat }));
@@ -204,4 +208,39 @@ it('shows the completed summary when the next deal arrives before the final-play
   expect(view.phase).toBe('scoring');
   expect(view.nextHandAvailable).toBe(true);
   expect(Object.values(view.deal ?? {}).map(cards => cards.length)).toEqual([13, 13, 13, 13]);
+});
+
+it('recovers the latest analyzable hand and sums raw completed-board points on initial load', async () => {
+  completedHistory = [
+    { id: 'passed-out', phase: 'finished', contract: null },
+    { id: 'latest-replay', phase: 'scoring', contract: {}, imp_result: { netPoints: 450 } },
+    { id: 'original', phase: 'scoring', contract: {}, imp_result: null },
+    { id: 'earlier-replay', phase: 'scoring', contract: {}, imp_result: { netPoints: -170 } },
+    { id: 'playing', phase: 'playing', contract: {}, imp_result: { netPoints: 999 } },
+  ];
+  const south = mountClient('S');
+  await settle();
+  const view = renders.get(south)!();
+  expect(view.lastCompletedHandId).toBe('latest-replay');
+  expect(view.matchPointDifference).toBe(280);
+  expect(view.boardPointDifference).toBeNull();
+});
+
+it('gives declarer the active turn when dummy is due, while the dummy account has no action', async () => {
+  currentPlaySeat = 'N';
+  const north = mountClient('N');
+  const south = mountClient('S');
+  await settle();
+  expect(renders.get(north)!().isMyTurn).toBe(false);
+  expect(renders.get(south)!().isMyTurn).toBe(true);
+});
+
+it('gives the actual opening bidder the active turn rather than the old declarer', async () => {
+  currentHandNumber = 2;
+  const north = mountClient('N');
+  const south = mountClient('S');
+  await settle();
+  expect(renders.get(north)!().phase).toBe('bidding');
+  expect(renders.get(north)!().isMyTurn).toBe(true);
+  expect(renders.get(south)!().isMyTurn).toBe(false);
 });
