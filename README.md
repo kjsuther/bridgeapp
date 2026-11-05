@@ -4,6 +4,15 @@
 
 A four-player rubber bridge table built with React, WebRTC, and Supabase.
 
+Browser tabs, saved shortcuts, and shared links use Bridge Club branding from
+`public/bridge-icon-v1.svg`, the PNG/ICO icon fallbacks, and the 1200 by 630
+`public/bridge-club-share-v1.png` image. Open Graph and Twitter metadata live in
+`index.html` so preview crawlers can read them without signing in or running the app.
+If the public domain changes, update the canonical and absolute preview URLs in
+that file. Regenerate raster assets on Windows with
+`powershell -NoProfile -File scripts/generate-branding.ps1`. When changing artwork
+again, use a new image filename in metadata to help avoid old cached previews.
+
 Table hosts assign each seat by entering the player's existing account email,
 including their own. Player dropdowns and full-account-list loading are removed.
 Email matching ignores case and surrounding spaces; unknown accounts and duplicate
