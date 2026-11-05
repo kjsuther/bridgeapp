@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createDeck } from '@/lib/dealing';
 import { createInitialPlayState } from '@/lib/play';
 import type { Seat } from '@/types/bridge';
+import type { ScheduledHand } from '@/lib/matchSchedule';
 
 const harness = vi.hoisted(() => ({
   effects: [] as Array<() => void | (() => void)>,
@@ -38,6 +39,8 @@ let finished: boolean;
 let completedHistory: unknown[] | null;
 let currentHandNumber: number;
 let currentPlaySeat: Seat;
+let scheduleRows: (ScheduledHand & { vulnerability: string })[] | null;
+let scheduleFailure: boolean;
 let renders: Map<typeof harness.slots, () => GameValues>;
 let channels: Array<{ name: string; change: () => void; status: (s: string) => void }>;
 let cleanups: Array<() => void>;
@@ -71,6 +74,7 @@ beforeEach(() => {
   vi.stubGlobal('window', new EventTarget());
   vi.stubGlobal('document', Object.assign(new EventTarget(), { visibilityState: 'visible' }));
   finished = false; completedHistory = null; currentHandNumber = 1; currentPlaySeat = 'E'; channels = []; cleanups = []; renders = new Map();
+  scheduleRows = null; scheduleFailure = false;
   harness.removeChannel.mockResolvedValue(undefined);
   harness.rpc.mockImplementation(async (_name: string, params: {p_hand_number: number}) => {
     if (currentHandNumber >= params.p_hand_number) return { data: null, error: { code: '23505' } };
@@ -90,10 +94,11 @@ beforeEach(() => {
     let replay = false;
     let single = false;
     let history = false;
+    let scheduling = false;
     let requestedHand: string | null = null;
     const query = {
       update() { return this; }, lt() { return this; },
-      select() { return this; }, eq(key: string, value: string) { if (key === 'hand_role') replay = true; if (key === 'id' || key === 'hand_id') requestedHand = value; return this; },
+      select(columns: string) { if (columns.includes('original_hand_id, dealer')) scheduling = true; return this; }, eq(key: string, value: string) { if (key === 'hand_role') replay = true; if (key === 'id' || key === 'hand_id') requestedHand = value; return this; },
       in(key: string) { if (key === 'phase') history = true; return this; }, order() { return this; }, limit() { return this; }, maybeSingle() { single = true; return this; },
       then(resolve: (value: unknown) => unknown) {
         const handNumber = table === 'hands' && requestedHand === 'hand-1' ? 1 : currentHandNumber;
@@ -107,11 +112,11 @@ beforeEach(() => {
         };
         const data = table === 'games' ? { id: 'game', hand_number: currentHandNumber }
           : table === 'tables' ? { match_board_number: 0, new_hands_before_replay: 8 }
-          : table === 'hands' ? (history && completedHistory ? completedHistory : replay ? [] : single ? hand : [hand])
+          : table === 'hands' ? (scheduling && scheduleRows ? scheduleRows : history && completedHistory ? completedHistory : replay ? [] : single ? hand : [hand])
           : table === 'hand_cards' ? (completed ? cardRows : cardRows.filter(r => r.seat === 'S' || r.seat === 'N'))
           : table === 'table_players' ? seats.map(seat => ({ seat, user_id: `user-${seat}` }))
           : seats.map(seat => ({ id: `user-${seat}`, display_name: seat }));
-        return Promise.resolve({ data, error: null }).then(resolve);
+        return Promise.resolve({ data, error: scheduling && scheduleFailure ? { message: 'offline' } : null }).then(resolve);
       },
     };
     return query;
@@ -243,4 +248,33 @@ it('gives the actual opening bidder the active turn rather than the old declarer
   expect(renders.get(north)!().phase).toBe('bidding');
   expect(renders.get(north)!().isMyTurn).toBe(true);
   expect(renders.get(south)!().isMyTurn).toBe(false);
+});
+
+it('sends the oldest compatible original, continuous dealer, and rotated vulnerability to the deal RPC', async () => {
+  currentHandNumber = 16; finished = true;
+  scheduleRows = [2, 14, 16].map(number => ({ id: `hand-${number}`, hand_number: number,
+    dealer: 'E', hand_role: 'original', original_hand_id: null, phase: 'scoring', vulnerability: number === 2 ? 'NS' : 'none' }));
+  const south = mountClient('S');
+  await settle();
+  await renders.get(south)!().startNewHand();
+  expect(harness.rpc).toHaveBeenCalledWith('create_bridge_hand', expect.objectContaining({
+    p_hand_number: 17, p_dealer: 'S', p_hand_role: 'replay', p_original_hand_id: 'hand-2', p_vulnerability: 'EW',
+  }));
+});
+
+it('deals fresh if none fit and permits retry after a history-read failure without dealing blindly', async () => {
+  currentHandNumber = 16; finished = true;
+  scheduleRows = [{ id: 'hand-16', hand_number: 16, dealer: 'E', hand_role: 'replay', original_hand_id: 'old', phase: 'scoring', vulnerability: 'none' }];
+  scheduleFailure = true;
+  const south = mountClient('S');
+  await settle();
+  await renders.get(south)!().startNewHand();
+  expect(harness.rpc).not.toHaveBeenCalled();
+  expect(renders.get(south)!().nextHandBusy).toBe(false);
+  scheduleFailure = false;
+  await renders.get(south)!().startNewHand();
+  expect(harness.rpc).toHaveBeenCalledWith('create_bridge_hand', expect.objectContaining({
+    p_hand_number: 17, p_dealer: 'S', p_hand_role: 'original',
+  }));
+  expect(harness.rpc.mock.calls[0][1]).not.toHaveProperty('p_original_hand_id');
 });

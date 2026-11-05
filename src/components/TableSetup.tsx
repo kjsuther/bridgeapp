@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { createLiveRefresh } from '@/lib/liveRefresh';
 import { assignSeatByEmail } from '@/lib/seatAssignment';
+import { INITIAL_ORIGINAL_HANDS } from '@/lib/matchSchedule';
 import { useAuth } from '@/context/AuthContext';
 import type { Seat } from '@/types/bridge';
 import { SEATS, SUIT_SYMBOLS } from '@/types/bridge';
@@ -31,14 +32,13 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
   });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [newHandsBeforeReplay, setNewHandsBeforeReplay] = useState(10);
 
   const isHost = hostId === profile?.id;
 
   const loadState = useCallback(async () => {
     const { data: tableData } = await supabase
       .from('tables')
-      .select('name, status, host_id, new_hands_before_replay')
+      .select('name, status, host_id')
       .eq('id', tableId)
       .maybeSingle();
 
@@ -46,7 +46,6 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
       setTableName(tableData.name);
       setTableStatus(tableData.status);
       setHostId(tableData.host_id);
-      setNewHandsBeforeReplay(tableData.new_hands_before_replay ?? 10);
 
       // Get host display name
       const { data: hostProfile } = await supabase
@@ -313,36 +312,9 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
             )}
           </div>
 
-          {isHost && tableStatus !== 'playing' && (
-            <div className="mt-4 flex items-center gap-3 bg-slate-900/40 rounded-lg border border-slate-700/30 px-4 py-3">
-              <label htmlFor="newHandsInput" className="text-sm text-slate-300 whitespace-nowrap">
-                New hands before replays:
-              </label>
-              <select
-                id="newHandsInput"
-                value={newHandsBeforeReplay}
-                onChange={(e) => {
-                  const v = parseInt(e.target.value, 10);
-                  if (!isNaN(v)) {
-                    setNewHandsBeforeReplay(v);
-                    supabase
-                      .from('tables')
-                      .update({ new_hands_before_replay: v })
-                      .eq('id', tableId)
-                      .then(() => loadState());
-                  }
-                }}
-                className="w-24 px-3 py-1.5 bg-slate-900/70 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-              >
-                {[4, 8, 12, 16, 20, 24, 28, 32].map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-              <span className="text-xs text-slate-500">
-                Must be a multiple of 4 so dealer and vulnerability cycle in sync with replays. After this many new hands, the match alternates between replaying old deals (with seats swapped) and new ones.
-              </span>
-            </div>
-          )}
+          <p className="mt-4 text-sm leading-6 text-slate-400">
+            The first {INITIAL_ORIGINAL_HANDS} hands are fresh deals. Then each hand advances the dealer and replays the oldest compatible completed original, or deals fresh cards if no match is available.
+          </p>
 
           {isHost ? (
             <button

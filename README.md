@@ -73,6 +73,20 @@ Replays rotate the original board one seat clockwise: N's cards go to E,
 E's to S, S's to W, and W's to N. Dealer and vulnerability follow the cards.
 This exchanges partnerships while preserving bidding order and opening lead.
 
+The first eight hands are new originals. After that, every deal advances the
+dealer one seat from the most recent recorded hand, including in existing games
+whose earlier dealers were irregular. The scheduler searches completed, unreplayed
+originals oldest first and uses the first whose clockwise-rotated dealer matches
+the next dealer. If no original fits, it deals a fresh hand. Replay vulnerability
+still rotates with the original cards. The former alternating schedule and
+replay-count controls are removed; the legacy database column is no longer used
+to choose deals. Existing hands and scores are preserved.
+
+The table identifies replays as "Replay of hand #...", and the admin next-deal
+preview uses the same scheduling function as actual dealing. Refresh every player
+after publishing so all clients use this rule. No additional SQL is required
+when migration 015 is already applied.
+
 Apply `supabase/migrations/20261025130000_015_rotate_replay_board_clockwise.sql`
 to the existing database **before** deploying this frontend. The function
 derives replay dealer and vulnerability from the original hand, rather than
