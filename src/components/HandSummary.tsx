@@ -2,12 +2,13 @@ import { useEffect, useRef } from 'react';
 import { useGame } from '@/context/GameContext';
 import { SEATS } from '@/types/bridge';
 import { sortHand } from '@/lib/dealing';
+import { dummySeat } from '@/lib/play';
 import { HandDisplay } from './CardDisplay';
 import { openDoubleDummyWindow } from '@/lib/historyWindow';
 import { ScorePanel, NextHandButton } from './ScorePanel';
 
 export function HandSummary({ onClose }: { onClose: () => void }) {
-  const { handNumber, players, deal, contract, phase, currentHandId, nextHandAvailable } = useGame();
+  const { handNumber, players, deal, contract, phase, currentHandId, nextHandAvailable, turnTimes } = useGame();
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     dialog.current?.showModal();
@@ -21,6 +22,27 @@ export function HandSummary({ onClose }: { onClose: () => void }) {
         <button autoFocus onClick={onClose} className="rounded-lg bg-slate-700 px-4 py-2">Back to table</button>
       </div>
       {contract ? <ScorePanel /> : <p className="mb-4">Hand passed out. No contract was reached.</p>}
+      <h3 className="mt-5 mb-3 font-semibold">Time taken per player</h3>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {SEATS.map(seat => {
+          const ms = turnTimes[seat] ?? 0;
+          const totalSeconds = Math.floor(ms / 1000);
+          const m = Math.floor(totalSeconds / 60);
+          const s = totalSeconds % 60;
+          const label = `${m}:${s.toString().padStart(2, '0')}`;
+          const isDummy = contract && seat !== contract.declarer && seat === dummySeat(contract.declarer);
+          const isDeclarer = contract && seat === contract.declarer;
+          return (
+            <div key={seat} className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 text-center">
+              <div className="text-sm text-slate-300">{seat} — {players.find(player => player.seat === seat)?.display_name ?? seat}</div>
+              <div className="mt-1 text-2xl font-semibold tabular-nums">{label}</div>
+              {(isDeclarer || isDummy) && (
+                <div className="mt-1 text-xs text-slate-400">{isDeclarer ? 'Declarer (incl. dummy)' : 'Dummy'}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
       <h3 className="mt-5 mb-3 font-semibold">Original cards dealt to each player</h3>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {SEATS.map(seat => (

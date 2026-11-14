@@ -68,6 +68,8 @@ interface GameContextValue {
   hostId: string | null;
   loading: boolean;
   error: string | null;
+  turnTimes: Record<Seat, number>;
+  turnStartedAt: number | null;
 }
 
 const GameContext = createContext<GameContextValue | undefined>(undefined);
@@ -110,6 +112,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const [newHandsBeforeReplay, setNewHandsBeforeReplay] = useState(10);
   const [replaysStarted, setReplaysStarted] = useState(false);
   const [hostId, setHostId] = useState<string | null>(null);
+  const [turnTimes, setTurnTimes] = useState<Record<Seat, number>>({ N: 0, E: 0, S: 0, W: 0 });
+  const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
 
   const loadRequestRef = useRef(0);
   const loadedHandRef = useRef<{ id: string; number: number; version: number; completed: boolean } | null>(null);
@@ -312,6 +316,10 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       setBidUndoRequest((hand.bid_undo_request as UndoRequest | undefined) ?? null);
       setHandRole((hand.hand_role as HandRole | undefined) ?? 'original');
       setReplayOfHandNumber(completedResult.data?.find(original => original.id === hand.original_hand_id)?.hand_number ?? null);
+      const rawTurnTimes = (hand.turn_times as Record<string, number> | null) ?? {};
+      setTurnTimes({ N: rawTurnTimes.N ?? 0, E: rawTurnTimes.E ?? 0, S: rawTurnTimes.S ?? 0, W: rawTurnTimes.W ?? 0 });
+      const rawTurnStartedAt = hand.turn_started_at as string | null;
+      setTurnStartedAt(rawTurnStartedAt ? new Date(rawTurnStartedAt).getTime() : null);
     } else {
       applyTableState();
     }
@@ -452,6 +460,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     const updateData: Record<string, unknown> = {
       auction: newAuction,
       phase: newPhase,
+      timed_seat: bidder,
     };
 
     if (newContract) {
@@ -549,9 +558,12 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       setLastScore(newLastScore);
     }
 
+    const timedSeat = actingSeat(phase, playingSeat, contract) ?? playingSeat;
+
     const updateData: Record<string, unknown> = {
       play_state: updatedPlayState,
       phase: newPhase,
+      timed_seat: timedSeat,
     };
 
     if (newContract !== contract) {
@@ -991,6 +1003,8 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     hostId,
     loading,
     error,
+    turnTimes,
+    turnStartedAt,
  };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
