@@ -18,7 +18,7 @@ import { INITIAL_ORIGINAL_HANDS } from '@/lib/matchSchedule';
 import {
   Mic, MicOff, Video, VideoOff, Volume2, VolumeX, ArrowLeft, Undo2, Check, X, UserRound, Settings, History as HistoryIcon, BookOpen,
 } from 'lucide-react';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 interface GameTableProps {
@@ -146,6 +146,17 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
   const [animToggleOpen, setAnimToggleOpen] = useState(false);
   const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [fastAnimations, setFastAnimations] = useState(false);
+  const [videoSidebar, setVideoSidebar] = useState(() => {
+    try { return localStorage.getItem('bridge-video-sidebar') === 'true'; } catch { return false; }
+  });
+  const [isLargeScreen, setIsLargeScreen] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsLargeScreen(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  const videoSidebarActive = videoSidebar && isLargeScreen;
 
   const currentTrick = playState?.currentTrick ?? [];
   const handComplete = phase === 'scoring' || phase === 'finished';
@@ -461,6 +472,14 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                     Fast play
                     <input type="checkbox" checked={fastAnimations} disabled={!animationsEnabled} onChange={(event) => setFastAnimations(event.target.checked)} className="accent-emerald-500 h-4 w-4" />
                   </label>
+                  <label className={`flex items-center justify-between text-sm text-slate-300 py-2 cursor-pointer ${!isLargeScreen ? 'opacity-40' : ''}`}>
+                    Video side panel
+                    <input type="checkbox" checked={videoSidebarActive} disabled={!isLargeScreen} onChange={() => {
+                      const next = !videoSidebar;
+                      setVideoSidebar(next);
+                      try { localStorage.setItem('bridge-video-sidebar', String(next)); } catch { /* ignore */ }
+                    }} className="accent-emerald-500 h-4 w-4" />
+                  </label>
                   <p className="mt-3 border-t border-slate-700 pt-3 text-xs leading-5 text-slate-300">
                     Replay schedule: the first {INITIAL_ORIGINAL_HANDS} hands are fresh deals. After that, the dealer keeps advancing and the oldest compatible completed hand is replayed. If none match, a new hand is dealt.
                   </p>
@@ -528,6 +547,31 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
       {/* Main game area */}
       <div className="flex-1 flex min-h-0">
+        {videoSidebarActive && (
+          <div className="w-44 xl:w-52 shrink-0 bg-slate-900/80 backdrop-blur border-r border-slate-700/50 p-2 flex flex-col gap-2 overflow-y-auto">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500 px-1">Players</p>
+            {SEATS.map((seat) => {
+              const isLocal = seatToUserId[seat] === myUserId;
+              const seatName = seatToName[seat] || seat;
+              const isTurnNow = currentSeat === seat && (phase === 'playing' || phase === 'bidding');
+              return (
+                <div key={`sidebar-video-${seat}`} className={`relative rounded-xl p-1.5 ${isTurnNow ? 'ring-2 ring-amber-400' : ''}`}>
+                  <div className="relative">
+                    <VideoTile
+                      stream={getStreamForSeat(seat)}
+                      displayName={seatName}
+                      seat={seat}
+                      isLocal={isLocal}
+                      muted={isLocal || !outputEnabled}
+                      className="w-full aspect-[4/3]"
+                    />
+                    {phase === 'bidding' && lastBidPerSeat[seat] && <BidBadge bid={lastBidPerSeat[seat]!.bid} />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div
           ref={attachTableArea}
           className="flex-1 relative min-w-0 min-h-0 overflow-hidden bg-emerald-950/20"
@@ -645,7 +689,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
           )}
 
           {/* Keep every tile mounted: its video element also plays participant audio. */}
-          {SEATS.map((seat) => {
+          {!videoSidebarActive && SEATS.map((seat) => {
             const side = viewSides[seat];
             const isLocal = seatToUserId[seat] === myUserId;
             const isDeclarerCameraForDummy = isDummySeat && contract?.declarer === seat;
