@@ -13,6 +13,7 @@ function setup(phase: Phase) {
   context.value = {
     handNumber: 3, deal, phase, contract: null, players: [], mySeat: 'S',
     matchState: { boardNumber: 0, totalImpsA: 0, totalImpsB: 0 }, handRole: 'original',
+    turnTimes: { N: 0, E: 0, S: 0, W: 0 }, turnStartedAt: null,
   };
 }
 it('shows all 52 originally dealt cards after a hand, including a passed-out hand', () => {
