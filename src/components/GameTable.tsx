@@ -151,6 +151,14 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
   const [videoSidebar, setVideoSidebar] = useState(() => {
     try { return localStorage.getItem('bridge-video-sidebar') === 'true'; } catch { return false; }
   });
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const stored = localStorage.getItem('bridge-video-sidebar-width');
+      if (stored) return Math.max(160, Math.min(480, parseInt(stored, 10)));
+    } catch { /* ignore */ }
+    return 208;
+  });
+  const sidebarResizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [isLargeScreen, setIsLargeScreen] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)');
@@ -159,6 +167,31 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const videoSidebarActive = videoSidebar && isLargeScreen;
+
+  const onSidebarResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    sidebarResizingRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, [sidebarWidth]);
+
+  const onSidebarResizeMove = useCallback((e: React.PointerEvent) => {
+    const drag = sidebarResizingRef.current;
+    if (!drag) return;
+    const delta = drag.startX - e.clientX;
+    const next = Math.max(160, Math.min(480, drag.startWidth + delta));
+    setSidebarWidth(next);
+  }, []);
+
+  const onSidebarResizeEnd = useCallback((e: React.PointerEvent) => {
+    const drag = sidebarResizingRef.current;
+    if (drag) {
+      const delta = drag.startX - e.clientX;
+      const final = Math.max(160, Math.min(480, drag.startWidth + delta));
+      try { localStorage.setItem('bridge-video-sidebar-width', String(final)); } catch { /* ignore */ }
+    }
+    sidebarResizingRef.current = null;
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  }, []);
 
   const currentTrick = playState?.currentTrick ?? [];
   const handComplete = phase === 'scoring' || phase === 'finished';
@@ -583,7 +616,10 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
       {/* Main game area */}
       <div className="flex-1 flex min-h-0">
         {videoSidebarActive && (
-          <div className="w-44 xl:w-52 shrink-0 bg-slate-900/80 backdrop-blur border-r border-slate-700/50 p-2 flex flex-col gap-2 overflow-y-auto">
+          <div
+            className="shrink-0 bg-slate-900/80 backdrop-blur border-r border-slate-700/50 p-2 flex flex-col gap-2 overflow-y-auto"
+            style={{ width: sidebarWidth }}
+          >
             <p className="text-[10px] uppercase tracking-wide text-slate-500 px-1">Players</p>
             {SEATS.map((seat) => {
               const isLocal = seatToUserId[seat] === myUserId;
@@ -606,6 +642,16 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
               );
             })}
           </div>
+        )}
+        {videoSidebarActive && (
+          <div
+            onPointerDown={onSidebarResizeStart}
+            onPointerMove={onSidebarResizeMove}
+            onPointerUp={onSidebarResizeEnd}
+            onPointerCancel={onSidebarResizeEnd}
+            className="shrink-0 w-1.5 cursor-col-resize bg-slate-700/50 hover:bg-emerald-500/50 active:bg-emerald-500/70 transition-colors touch-none"
+            title="Drag to resize"
+          />
         )}
         <div
           ref={attachTableArea}
