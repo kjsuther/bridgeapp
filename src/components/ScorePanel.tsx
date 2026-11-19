@@ -1,9 +1,12 @@
 import { useGame } from '@/context/GameContext';
-import { ArrowRight, Scale } from 'lucide-react';
+import { ArrowRight, Scale, Timer } from 'lucide-react';
 import { rawScoreForNS } from '@/lib/impScoring';
+import { formatDuration } from '@/lib/turn';
+import type { Seat } from '@/types/bridge';
+import { SEATS, sideOfSeat } from '@/types/bridge';
 
 export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
-  const { lastScore, phase, contract, vulnerability, handNumber, matchState, handRole, matchPointDifference, boardPointDifference } = useGame();
+  const { lastScore, phase, contract, vulnerability, handNumber, matchState, handRole, matchPointDifference, boardPointDifference, turnTimes, gameTurnTimes } = useGame();
 
   return (
     <div className="bg-slate-800/70 backdrop-blur rounded-xl border border-slate-700/50 p-4 space-y-3">
@@ -39,26 +42,75 @@ export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
         </div>
       )}
 
-      {showMatch && <div className="bg-slate-900/50 border border-amber-700/30 rounded-lg p-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1.5">
-            <Scale className="w-3.5 h-3.5 text-amber-400" />
-            <p className="text-xs text-slate-400 font-medium">IMP Match</p>
+      {showMatch && (
+        <div className="bg-slate-900/50 border border-amber-700/30 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <Scale className="w-3.5 h-3.5 text-amber-400" />
+              <p className="text-xs text-slate-400 font-medium">IMP Match</p>
+            </div>
+            <span className="text-xs text-slate-500">
+              {handRole === 'replay' ? 'Replay' : 'Original'} &middot; Board {matchState.boardNumber}
+            </span>
           </div>
-          <span className="text-xs text-slate-500">
-            {handRole === 'replay' ? 'Replay' : 'Original'} &middot; Board {matchState.boardNumber}
-          </span>
+          <div className="flex justify-between text-sm">
+            <span className="text-emerald-300">Team A (N-S): <span className="font-bold">{matchState.totalImpsA > 0 ? '+' : ''}{matchState.totalImpsA}</span></span>
+            <span className="text-blue-300">Team B (E-W): <span className="font-bold">{matchState.totalImpsB > 0 ? '+' : ''}{matchState.totalImpsB}</span></span>
+          </div>
+          <p className="mt-2 text-xs text-slate-300">Raw match point difference: {matchPointDifference == null ? 'Loading…' : `Team A ${signed(matchPointDifference)} / Team B ${signed(-matchPointDifference)}`}</p>
+          <p className="mt-1 text-[11px] text-slate-400">Team A = seated N-S; Team B = seated E-W. Points compare completed original/replay pairs.</p>
+          {matchState.boardNumber > 0 && (
+            <p className="text-xs text-slate-500 mt-1">{matchState.boardNumber} board{matchState.boardNumber !== 1 ? 's' : ''} completed</p>
+          )}
         </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-emerald-300">Team A (N-S): <span className="font-bold">{matchState.totalImpsA > 0 ? '+' : ''}{matchState.totalImpsA}</span></span>
-          <span className="text-blue-300">Team B (E-W): <span className="font-bold">{matchState.totalImpsB > 0 ? '+' : ''}{matchState.totalImpsB}</span></span>
+      )}
+
+      {(phase === 'scoring' || phase === 'finished') && (
+        <TurnTimerSummary turnTimes={turnTimes} gameTurnTimes={gameTurnTimes} />
+      )}
+    </div>
+  );
+}
+
+function TurnTimerSummary({ turnTimes, gameTurnTimes }: { turnTimes: Record<Seat, number>; gameTurnTimes: Record<Seat, number> }) {
+  const anyHandTime = SEATS.some((s) => turnTimes[s] > 0);
+  const anyGameTime = SEATS.some((s) => gameTurnTimes[s] > 0);
+  if (!anyHandTime && !anyGameTime) return null;
+
+  return (
+    <div className="bg-slate-900/50 border border-sky-800/40 rounded-lg p-3 space-y-2">
+      <div className="flex items-center gap-1.5">
+        <Timer className="w-3.5 h-3.5 text-sky-400" />
+        <p className="text-xs text-slate-400 font-medium">Turn Times</p>
+      </div>
+
+      {anyHandTime && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">This hand</p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+            {SEATS.map((seat) => (
+              <div key={`hand-${seat}`} className="flex justify-between">
+                <span className={sideOfSeat(seat) === 'NS' ? 'text-emerald-300' : 'text-blue-300'}>{seat}</span>
+                <span className="text-slate-200 tabular-nums">{formatDuration(turnTimes[seat] ?? 0)}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <p className="mt-2 text-xs text-slate-300">Raw match point difference: {matchPointDifference == null ? 'Loading…' : `Team A ${signed(matchPointDifference)} / Team B ${signed(-matchPointDifference)}`}</p>
-        <p className="mt-1 text-[11px] text-slate-400">Team A = seated N-S; Team B = seated E-W. Points compare completed original/replay pairs.</p>
-        {matchState.boardNumber > 0 && (
-          <p className="text-xs text-slate-500 mt-1">{matchState.boardNumber} board{matchState.boardNumber !== 1 ? 's' : ''} completed</p>
-        )}
-      </div>}
+      )}
+
+      {anyGameTime && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Game total</p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+            {SEATS.map((seat) => (
+              <div key={`game-${seat}`} className="flex justify-between">
+                <span className={sideOfSeat(seat) === 'NS' ? 'text-emerald-300' : 'text-blue-300'}>{seat}</span>
+                <span className="text-slate-200 tabular-nums">{formatDuration(gameTurnTimes[seat] ?? 0)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

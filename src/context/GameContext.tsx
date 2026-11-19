@@ -70,6 +70,7 @@ interface GameContextValue {
   error: string | null;
   turnTimes: Record<Seat, number>;
   turnStartedAt: number | null;
+  gameTurnTimes: Record<Seat, number>;
 }
 
 const GameContext = createContext<GameContextValue | undefined>(undefined);
@@ -114,6 +115,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const [hostId, setHostId] = useState<string | null>(null);
   const [turnTimes, setTurnTimes] = useState<Record<Seat, number>>({ N: 0, E: 0, S: 0, W: 0 });
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
+  const [gameTurnTimes, setGameTurnTimes] = useState<Record<Seat, number>>({ N: 0, E: 0, S: 0, W: 0 });
 
   const loadRequestRef = useRef(0);
   const loadedHandRef = useRef<{ id: string; number: number; version: number; completed: boolean } | null>(null);
@@ -204,7 +206,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const loadGameState = useCallback(async () => {
     const request = ++loadRequestRef.current;
     // Fetch game, table, and latest hand in parallel
-    const [gameResult, tableResult, handsResult, replayResult, completedResult] = await Promise.all([
+    const [gameResult, tableResult, handsResult, replayResult, completedResult, allTurnTimesResult] = await Promise.all([
       supabase
         .from('games')
         .select('*')
@@ -230,12 +232,19 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
       supabase.from('hands').select('id, contract, phase, imp_result, hand_number, games!inner(table_id)')
         .eq('games.table_id', tableId).in('phase', ['scoring', 'finished'])
         .order('created_at', { ascending: false }),
+      supabase.from('hands').select('turn_times').eq('game_id', gameId),
     ]);
-
-    if (request !== loadRequestRef.current) return;
     const game = gameResult.data;
     const tableData = tableResult.data;
     const hands = handsResult.data;
+
+    const agg: Record<Seat, number> = { N: 0, E: 0, S: 0, W: 0 };
+    for (const row of allTurnTimesResult.data ?? []) {
+      const tt = (row.turn_times as Record<string, number> | null) ?? {};
+      for (const s of SEATS) agg[s] += tt[s] ?? 0;
+    }
+    setGameTurnTimes(agg);
+
     if (!completedResult.error && completedResult.data) {
       const completed = completedResult.data.filter(row => row.phase === 'scoring' || row.phase === 'finished');
       setLastCompletedHandId(completed.find(row => row.contract)?.id ?? null);
@@ -1005,6 +1014,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     error,
     turnTimes,
     turnStartedAt,
+    gameTurnTimes,
  };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

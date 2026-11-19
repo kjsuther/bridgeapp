@@ -13,6 +13,7 @@ import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/b
 import { SEATS, SUIT_SYMBOLS, STRAIN_SYMBOLS, sideOfSeat } from '@/types/bridge';
 import { getLegalCards } from '@/lib/play';
 import { highCardPoints } from '@/lib/dealing';
+import { formatDuration, actingSeat } from '@/lib/turn';
 import { ProfileSettings } from '@/components/ProfileSettings';
 import { INITIAL_ORIGINAL_HANDS } from '@/lib/matchSchedule';
 import {
@@ -97,6 +98,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading,
     handRole,
     handNumber, currentHandId, lastCompletedHandId, replayOfHandNumber,
+    turnTimes, turnStartedAt, gameTurnTimes,
   } = game;
 
   const myUserId = profile?.id ?? '';
@@ -172,6 +174,23 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
       return () => clearTimeout(timer);
     }
   }, [phase]);
+
+  const [liveTurnMs, setLiveTurnMs] = useState(0);
+  useEffect(() => {
+    if (!turnStartedAt || handComplete) { setLiveTurnMs(0); return; }
+    const update = () => setLiveTurnMs(Date.now() - turnStartedAt);
+    update();
+    const interval = setInterval(update, 200);
+    return () => clearInterval(interval);
+  }, [turnStartedAt, handComplete]);
+
+  const acting = actingSeat(phase, currentSeat, contract);
+  const liveTurnTimes: Record<Seat, number> = useMemo(() => {
+    const result = { ...turnTimes };
+    if (acting && liveTurnMs > 0) result[acting] = (result[acting] ?? 0) + liveTurnMs;
+    return result;
+  }, [turnTimes, acting, liveTurnMs]);
+
   const analysisHandId = handComplete && contract ? currentHandId : lastCompletedHandId;
   const captureCardSource = useCardPlayAnimation(
     tableAreaRef, `${game.gameId}-${handNumber}`, playState, animationsEnabled, fastAnimations,
@@ -352,6 +371,9 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     const isTurnNow = currentSeat === seat && (phase === 'playing' || phase === 'bidding');
     const layout: HandLayout = side === 'top' || side === 'bottom' ? 'horizontal' : 'side';
     const cardW = isMe ? myCardW : isDummySeatHere ? dummyCardW : layout === 'horizontal' ? otherHorizontalCardW : otherSideCardW;
+    const seatTimeMs = liveTurnTimes[seat] ?? 0;
+    const showTimer = (phase === 'bidding' || phase === 'playing' || handComplete) && seatTimeMs > 0;
+    const turnTimeText = showTimer ? formatDuration(seatTimeMs) : undefined;
 
     return (
       <SeatBadge
@@ -361,6 +383,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
         seatLabel={seat}
         playerName={seatToName[seat] || seat}
         hcp={phase === 'bidding' && seat === mySeat ? highCardPoints(getHand(seat)) : undefined}
+        turnTimeText={turnTimeText}
       >
         <div data-hand-seat={seat} className={`flex flex-col items-center gap-1 ${layout === 'side' ? 'max-w-full' : ''}`}>
           {showHand ? (
@@ -811,10 +834,11 @@ interface SeatBadgeProps {
   seatLabel: Seat;
   playerName: string;
   hcp?: number;
+  turnTimeText?: string;
   children: ReactNode;
 }
 
-function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, playerName, hcp, children }: SeatBadgeProps) {
+function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, playerName, hcp, turnTimeText, children }: SeatBadgeProps) {
   return (
     <div className={`relative rounded-xl p-1 ${isTurn ? 'ring-2 ring-amber-400' : ''}`}>
       <div className="mb-1 flex items-center gap-1 overflow-hidden rounded bg-slate-900/90 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-sm">
@@ -824,6 +848,11 @@ function SeatBadge({ isTurn, isDealer, isVulnerable, seatLabel, playerName, hcp,
         {isVulnerable && <span className="shrink-0 rounded bg-red-500 px-1 text-[9px] text-white">V</span>}
         {hcp !== undefined && <span className="ml-auto shrink-0 rounded bg-emerald-500/20 px-1.5 text-[9px] text-emerald-300">HCP {hcp}</span>}
       </div>
+      {turnTimeText && (
+        <div className={`absolute -top-2.5 right-1 z-20 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums shadow-lg ${isTurn ? 'bg-amber-500 text-white' : 'bg-slate-800 text-slate-300'}`}>
+          {turnTimeText}
+        </div>
+      )}
       {children}
     </div>
   );
