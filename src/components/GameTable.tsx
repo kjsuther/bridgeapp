@@ -160,6 +160,18 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
   const currentTrick = playState?.currentTrick ?? [];
   const handComplete = phase === 'scoring' || phase === 'finished';
+
+  const [holdFinalTrick, setHoldFinalTrick] = useState(false);
+  const prevPhaseRef = useRef<Phase>(phase);
+  useEffect(() => {
+    const prevPhase = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (prevPhase === 'playing' && (phase === 'scoring' || phase === 'finished')) {
+      setHoldFinalTrick(true);
+      const timer = setTimeout(() => setHoldFinalTrick(false), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [phase]);
   const analysisHandId = handComplete && contract ? currentHandId : lastCompletedHandId;
   const captureCardSource = useCardPlayAnimation(
     tableAreaRef, `${game.gameId}-${handNumber}`, playState, animationsEnabled, fastAnimations,
@@ -625,7 +637,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                 </div>
               )}
 
-              {phase === 'playing' && playState && (
+              {(phase === 'playing' || holdFinalTrick) && playState && (
                 <div className="relative flex items-center justify-center" style={{ width: trickAreaSize, height: trickAreaSize }}>
                   {(currentTrick.length > 0 ? currentTrick : (playState.lastCompletedTrick ?? [])).map((tc) => {
                     const side = viewSides[tc.seat];
@@ -655,7 +667,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                 </div>
               )}
 
-              {(phase === 'scoring' || phase === 'finished') && (
+              {(phase === 'scoring' || phase === 'finished') && !holdFinalTrick && (
                 <div className="flex flex-col items-center gap-2 max-h-full overflow-y-auto p-1">
                   {passedOut ? (
                     <div className="bg-slate-800/80 rounded-xl p-4 text-center shrink-0">
