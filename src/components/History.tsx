@@ -1,5 +1,6 @@
 import { AuctionComparison } from './AuctionComparison';
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { loadHandDetail, loadSeatNames } from '@/lib/handReview';
@@ -20,6 +21,7 @@ interface HistoryProps {
 
 interface CompletedBoard {
   boardNumber: number;
+  handNumber: number;
   originalHandId: string;
   replayHandId: string;
   vulnerability: Vulnerability;
@@ -321,7 +323,8 @@ function TableHistory({
         const impResult = hand.imp_result as { imps: number; netPoints: number } | null;
 
         completedBoards.push({
-          boardNumber: origHand.hand_number,
+          boardNumber: completedBoards.length + 1,
+          handNumber: origHand.hand_number,
           originalHandId: origHand.id,
           replayHandId: hand.id,
           vulnerability: hand.vulnerability as Vulnerability,
@@ -337,7 +340,9 @@ function TableHistory({
         });
       }
 
-      completedBoards.sort((a, b) => b.boardNumber - a.boardNumber);
+      completedBoards.sort((a, b) => b.handNumber - a.handNumber);
+      // Re-assign sequential board numbers after sorting (newest board first)
+      completedBoards.forEach((b, i) => { b.boardNumber = completedBoards.length - i; });
       setBoards(completedBoards);
       setLoading(false);
     })();
@@ -407,7 +412,7 @@ function TableHistory({
                 >
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <h3 className="text-white font-medium">Board {board.boardNumber}</h3>
+                      <h3 className="text-white font-medium">Board {board.boardNumber} <span className="text-slate-500 font-normal text-sm">(Hand {board.handNumber})</span></h3>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className={`text-lg font-bold ${board.imps > 0 ? 'text-emerald-400' : board.imps < 0 ? 'text-blue-400' : 'text-slate-400'}`}>
@@ -418,19 +423,19 @@ function TableHistory({
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="bg-slate-900/40 rounded-lg p-2.5 border border-slate-700/20">
+                    <div className={`rounded-lg p-2.5 border ${board.originalScore.made ? 'border-emerald-700/30 bg-emerald-950/20' : 'border-red-800/30 bg-red-950/20'}`}>
                       <div className="text-slate-500 mb-1">Original</div>
-                      <div className="text-slate-200 font-medium">
-                        {contractText(board.originalContract)}
+                      <div className="font-medium">
+                        {contractWithResult(board.originalContract, board.originalScore)}
                       </div>
-                      <div className="text-slate-500 mt-0.5">{board.originalScore.summary}</div>
+                      <div className="text-slate-400 mt-1">{tricksLine(board.originalScore)}</div>
                     </div>
-                    <div className="bg-slate-900/40 rounded-lg p-2.5 border border-slate-700/20">
+                    <div className={`rounded-lg p-2.5 border ${board.replayScore.made ? 'border-emerald-700/30 bg-emerald-950/20' : 'border-red-800/30 bg-red-950/20'}`}>
                       <div className="text-slate-500 mb-1">Replay (swapped)</div>
-                      <div className="text-slate-200 font-medium">
-                        {contractText(board.replayContract)}
+                      <div className="font-medium">
+                        {contractWithResult(board.replayContract, board.replayScore)}
                       </div>
-                      <div className="text-slate-500 mt-0.5">{board.replayScore.summary}</div>
+                      <div className="text-slate-400 mt-1">{tricksLine(board.replayScore)}</div>
                     </div>
                   </div>
 
@@ -517,7 +522,7 @@ function BoardComparison({ board, onBack }: { board: CompletedBoard; onBack: () 
         </button>
 
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold text-white">Board {board.boardNumber} Comparison</h1>
+          <h1 className="text-xl font-bold text-white">Board {board.boardNumber} <span className="text-slate-500 font-normal text-base">(Hand {board.handNumber})</span> Comparison</h1>
           <div className="flex items-center gap-4">
             <span className="text-xs text-slate-400">Vul: <span className="text-slate-200">{vulLabel(board.vulnerability)}</span></span>
             <span className={`text-lg font-bold ${board.imps > 0 ? 'text-emerald-400' : board.imps < 0 ? 'text-blue-400' : 'text-slate-400'}`}>
@@ -587,6 +592,28 @@ function contractText(c: Contract): string {
   const strain = c.strain === 'NT' ? 'NT' : SUIT_SYMBOLS[c.strain as keyof typeof SUIT_SYMBOLS] ?? c.strain;
   const dbl = c.doubled === 1 ? 'X' : c.doubled === 2 ? 'XX' : '';
   return `${c.level}${strain}${dbl} by ${c.declarer}`;
+}
+
+function contractWithResult(c: Contract, score: HandScore): ReactNode {
+  const dbl = c.doubled === 1 ? 'X' : c.doubled === 2 ? 'XX' : '';
+  const strainColor = c.strain === 'H' || c.strain === 'D' ? 'text-red-400' : c.strain === 'NT' ? 'text-amber-400' : 'text-slate-100';
+  const resultText = score.made
+    ? ` Made${score.overtricks > 0 ? ` +${score.overtricks}` : ''}`
+    : ` Down ${score.undertricks}`;
+  const resultColor = score.made ? 'text-emerald-400' : 'text-red-400';
+  return (
+    <span className="text-slate-200">
+      {c.level}
+      <span className={strainColor}>{c.strain === 'NT' ? 'NT' : SUIT_SYMBOLS[c.strain as keyof typeof SUIT_SYMBOLS]}</span>
+      {dbl} by {c.declarer}
+      <span className={resultColor}>{resultText}</span>
+    </span>
+  );
+}
+
+function tricksLine(score: HandScore): string {
+  const required = 6 + score.contract.level;
+  return `${score.contract.tricksMade} tricks / ${required} needed`;
 }
 
 function vulLabel(vul: Vulnerability): string {

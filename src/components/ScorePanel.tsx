@@ -2,70 +2,104 @@ import { useGame } from '@/context/GameContext';
 import { ArrowRight, Scale, Timer } from 'lucide-react';
 import { rawScoreForNS } from '@/lib/impScoring';
 import { formatDuration } from '@/lib/turn';
-import type { Seat } from '@/types/bridge';
-import { SEATS, sideOfSeat } from '@/types/bridge';
+import type { Seat, Contract, Vulnerability } from '@/types/bridge';
+import { SEATS, sideOfSeat, SUIT_SYMBOLS } from '@/types/bridge';
 
 export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
-  const { lastScore, phase, contract, vulnerability, handNumber, matchState, handRole, matchPointDifference, boardPointDifference, turnTimes, gameTurnTimes } = useGame();
+  const { lastScore, phase, contract, vulnerability, handNumber, handRole, matchState, matchPointDifference, boardPointDifference, turnTimes, gameTurnTimes, replayOfHandNumber } = useGame();
+
+  const handComplete = phase === 'scoring' || phase === 'finished';
+  const phaseLabel = phase === 'bidding' ? 'Bidding' : phase === 'playing' ? 'Playing' : handComplete ? 'Complete' : '';
 
   return (
-    <div className="bg-slate-800/70 backdrop-blur rounded-xl border border-slate-700/50 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-white font-medium text-sm">Hand Result</h3>
-        <span className="text-xs text-slate-400">
-          Hand {handNumber}
-        </span>
+    <div className="space-y-3">
+      {/* Current Hand section */}
+      <div className="bg-slate-800/70 backdrop-blur rounded-xl border border-slate-700/50 p-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-white font-medium text-sm">Current Hand</h3>
+          <div className="flex items-center gap-2">
+            {phaseLabel && <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">{phaseLabel}</span>}
+            <span className="text-xs text-slate-400">Hand {handNumber}</span>
+          </div>
+        </div>
+
+        <div className="text-xs text-slate-500 flex flex-wrap gap-3">
+          <span>Vul: <span className="text-slate-300">{vulLabel(vulnerability)}</span></span>
+          {contract && (
+            <span>Contract: <span className="text-slate-300">{contractLabel(contract)}</span></span>
+          )}
+          {handRole === 'replay' && replayOfHandNumber && (
+            <span className="text-amber-300">Replay of hand {replayOfHandNumber}</span>
+          )}
+        </div>
       </div>
 
-      <div className="text-xs text-slate-500 flex flex-wrap gap-3">
-        <span>Vulnerability: <span className="text-slate-300">{vulLabel(vulnerability)}</span></span>
-        {contract && (
-          <span>Contract: <span className="text-slate-300">{contract.level}{contract.strain}{contract.doubled === 1 ? 'X' : contract.doubled === 2 ? 'XX' : ''} by {contract.declarer}</span></span>
-        )}
-      </div>
-
-      {lastScore && (phase === 'scoring' || phase === 'finished') && (
-        <div className="bg-emerald-950/40 border border-emerald-700/30 rounded-lg p-3">
-          <p className="text-sm text-emerald-300 font-medium">{lastScore.summary}</p>
-          {contract && <p className="mt-1 text-xs text-slate-200">Hand score (N-S): {signed(rawScoreForNS(contract, vulnerability))} points</p>}
-          {boardPointDifference != null && <p className="mt-1 text-xs text-amber-200">Board point difference: Team A {signed(boardPointDifference)} / Team B {signed(-boardPointDifference)}</p>}
-          <div className="mt-2 space-y-1 text-xs">
-            <div className="flex justify-between">
-              <span className="text-slate-400">Declarer side:</span>
-              <span className="text-white">{lastScore.declarerSide}</span>
+      {/* Last Completed Hand section */}
+      {lastScore && handComplete && (
+        <div className="bg-slate-800/70 backdrop-blur rounded-xl border border-slate-700/50 p-4 space-y-3">
+          <h3 className="text-white font-medium text-sm">Last Completed Hand</h3>
+          <div className={`rounded-lg p-3 ${lastScore.made ? 'bg-emerald-950/40 border border-emerald-700/30' : 'bg-red-950/40 border border-red-800/30'}`}>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-sm font-medium">
+                {contract && <span className="text-slate-200">{contractLabel(contract)} </span>}
+                <span className={lastScore.made ? 'text-emerald-300' : 'text-red-300'}>
+                  {lastScore.made
+                    ? `Made${lastScore.overtricks > 0 ? ` +${lastScore.overtricks}` : ''}`
+                    : `Down ${lastScore.undertricks}`}
+                </span>
+              </p>
+              <span className="text-xs text-slate-400">Hand {handNumber}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Tricks made:</span>
-              <span className="text-white">{lastScore.contract.tricksMade} / {6 + lastScore.contract.level}</span>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Tricks made:</span>
+                <span className="text-white">{lastScore.contract.tricksMade} / {6 + lastScore.contract.level}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Declarer side:</span>
+                <span className="text-white">{lastScore.declarerSide}</span>
+              </div>
+              {contract && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Score (N-S):</span>
+                  <span className="text-white">{signed(rawScoreForNS(contract, vulnerability))} pts</span>
+                </div>
+              )}
+              {boardPointDifference != null && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Board pts:</span>
+                  <span className="text-amber-200">A {signed(boardPointDifference)} / B {signed(-boardPointDifference)}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
+      {/* Match Total section */}
       {showMatch && (
-        <div className="bg-slate-900/50 border border-amber-700/30 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-2">
+        <div className="bg-slate-800/70 backdrop-blur rounded-xl border border-amber-700/30 p-4 space-y-2">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <Scale className="w-3.5 h-3.5 text-amber-400" />
-              <p className="text-xs text-slate-400 font-medium">IMP Match</p>
+              <h3 className="text-white font-medium text-sm">Match Total</h3>
             </div>
             <span className="text-xs text-slate-500">
-              {handRole === 'replay' ? 'Replay' : 'Original'} &middot; Board {matchState.boardNumber}
+              {handRole === 'replay' ? 'Replay' : 'Original'}
             </span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-emerald-300">Team A (N-S): <span className="font-bold">{matchState.totalImpsA > 0 ? '+' : ''}{matchState.totalImpsA}</span></span>
             <span className="text-blue-300">Team B (E-W): <span className="font-bold">{matchState.totalImpsB > 0 ? '+' : ''}{matchState.totalImpsB}</span></span>
           </div>
-          <p className="mt-2 text-xs text-slate-300">Raw match point difference: {matchPointDifference == null ? 'Loading…' : `Team A ${signed(matchPointDifference)} / Team B ${signed(-matchPointDifference)}`}</p>
-          <p className="mt-1 text-[11px] text-slate-400">Team A = seated N-S; Team B = seated E-W. Points compare completed original/replay pairs.</p>
+          <p className="text-xs text-slate-400">Raw point diff: {matchPointDifference == null ? 'Loading…' : `A ${signed(matchPointDifference)} / B ${signed(-matchPointDifference)}`}</p>
           {matchState.boardNumber > 0 && (
-            <p className="text-xs text-slate-500 mt-1">{matchState.boardNumber} board{matchState.boardNumber !== 1 ? 's' : ''} completed</p>
+            <p className="text-xs text-slate-500">{matchState.boardNumber} board{matchState.boardNumber !== 1 ? 's' : ''} completed</p>
           )}
         </div>
       )}
 
-      {(phase === 'scoring' || phase === 'finished') && (
+      {handComplete && (
         <TurnTimerSummary turnTimes={turnTimes} gameTurnTimes={gameTurnTimes} />
       )}
     </div>
@@ -78,7 +112,7 @@ function TurnTimerSummary({ turnTimes, gameTurnTimes }: { turnTimes: Record<Seat
   if (!anyHandTime && !anyGameTime) return null;
 
   return (
-    <div className="bg-slate-900/50 border border-sky-800/40 rounded-lg p-3 space-y-2">
+    <div className="bg-slate-800/70 backdrop-blur rounded-xl border border-sky-800/40 p-4 space-y-2">
       <div className="flex items-center gap-1.5">
         <Timer className="w-3.5 h-3.5 text-sky-400" />
         <p className="text-xs text-slate-400 font-medium">Turn Times</p>
@@ -115,9 +149,15 @@ function TurnTimerSummary({ turnTimes, gameTurnTimes }: { turnTimes: Record<Seat
   );
 }
 
+function contractLabel(c: Contract): string {
+  const dbl = c.doubled === 1 ? 'X' : c.doubled === 2 ? 'XX' : '';
+  const strain = c.strain === 'NT' ? 'NT' : SUIT_SYMBOLS[c.strain as keyof typeof SUIT_SYMBOLS];
+  return `${c.level}${strain}${dbl} by ${c.declarer}`;
+}
+
 function signed(value: number) { return `${value > 0 ? '+' : ''}${value}`; }
 
-function vulLabel(vul: string): string {
+function vulLabel(vul: Vulnerability): string {
   switch (vul) {
     case 'none': return 'None';
     case 'NS': return 'NS';

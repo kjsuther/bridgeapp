@@ -842,9 +842,10 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
 
         {/* Right sidebar: scoreboard */}
         <div className="w-72 lg:w-80 xl:w-96 bg-slate-900/80 backdrop-blur border-l border-slate-700/50 p-3 hidden lg:block overflow-y-auto">
-          <button disabled={!analysisHandId} onClick={() => analysisHandId && openDoubleDummyWindow(analysisHandId)} className="mb-3 w-full rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">Last hand: double-dummy analysis</button>
           <ScorePanel />
-          <div className="mt-3">
+
+          {/* Current Hand: live game info */}
+          <div className="mt-3 space-y-3">
             {phase === 'playing' && playState && (
               <div className="bg-slate-800/70 rounded-xl border border-slate-700/50 p-3">
                 <h4 className="text-xs text-slate-400 font-medium mb-2">Current Trick</h4>
@@ -855,8 +856,18 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                 <div className="text-xs text-slate-500 mt-1">Trick {playState.trickNumber} / 13</div>
               </div>
             )}
-            <AuctionHistory />
+            <div className="bg-slate-800/70 rounded-xl border border-slate-700/50 p-3">
+              <h4 className="text-xs text-slate-400 font-medium mb-2">Auction</h4>
+              <AuctionHistory />
+            </div>
           </div>
+
+          {/* Last Completed Hand: analysis */}
+          {(phase === 'scoring' || phase === 'finished') && analysisHandId && (
+            <div className="mt-3">
+              <button onClick={() => analysisHandId && openDoubleDummyWindow(analysisHandId)} className="w-full rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 transition-colors">Double-dummy analysis</button>
+            </div>
+          )}
         </div>
       </div>
       {profileOpen && <ProfileSettings onClose={() => setProfileOpen(false)} />}
