@@ -4,7 +4,8 @@ import { createLiveRefresh } from '@/lib/liveRefresh';
 import { useAuth } from '@/context/AuthContext';
 import type { Seat, TablePlayer } from '@/types/bridge';
 import { SEATS } from '@/types/bridge';
-import { LogOut, Plus, Users, ArrowRight, History as HistoryIcon, Shield } from 'lucide-react';
+import { LogOut, Plus, Users, ArrowRight, History as HistoryIcon, Shield, Circle } from 'lucide-react';
+import { useLobbyPresence } from '@/hooks/usePresence';
 import { ProfileSettings } from '@/components/ProfileSettings';
 import { AvatarFigure } from '@/components/AvatarFigure';
 import { DEFAULT_AVATAR_STYLE, isAvatarStyle } from '@/lib/avatars';
@@ -151,6 +152,8 @@ export function Lobby({ onJoinTable, onShowHistory, onShowAdmin }: LobbyProps) {
   };
 
   const getPlayerName = (userId: string) => allProfiles[userId] ?? 'Unknown';
+  const tableIdList = tables.map(t => t.id);
+  const presenceByTable = useLobbyPresence(tableIdList);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900">
@@ -249,6 +252,8 @@ export function Lobby({ onJoinTable, onShowHistory, onShowAdmin }: LobbyProps) {
 
             const mySeatHere = players.find((p) => p.user_id === profile?.id);
             const isMyTable = !!mySeatHere;
+            const presentIds = presenceByTable[table.id] ?? new Set<string>();
+            const activeCount = players.filter(p => presentIds.has(p.user_id)).length;
 
             return (
               <div
@@ -283,19 +288,30 @@ export function Lobby({ onJoinTable, onShowHistory, onShowAdmin }: LobbyProps) {
                     </span>
                     <span className="text-sm text-slate-400">
                       {players.length}/4 players
+                      {activeCount > 0 && (
+                        <span className="text-emerald-400 ml-1.5 inline-flex items-center gap-1">
+                          <Circle className="w-2 h-2 fill-emerald-400 text-emerald-400" />
+                          {activeCount} active
+                        </span>
+                      )}
                     </span>
-                    <div className="flex gap-1 ml-2">
+                    <div className="flex flex-wrap gap-1.5 ml-2">
                       {SEATS.map((seat) => {
                         const player = players.find((p) => p.seat === seat);
+                        const isPresent = player && presentIds.has(player.user_id);
                         return (
                           <span
                             key={seat}
-                            className={`text-xs px-1.5 py-0.5 rounded ${
-                              player ? 'bg-emerald-600/30 text-emerald-300' : 'bg-slate-700/30 text-slate-500'
+                            className={`text-xs px-1.5 py-0.5 rounded-md ${
+                              player
+                                ? isPresent
+                                  ? 'bg-emerald-600/30 text-emerald-300 ring-1 ring-emerald-500/40'
+                                  : 'bg-slate-700/40 text-slate-300'
+                                : 'bg-slate-700/20 text-slate-600'
                             }`}
                             title={player ? getPlayerName(player.user_id) : 'Empty'}
                           >
-                            {seat}
+                            {seat}{player ? ` ${getPlayerName(player.user_id).split(' ')[0]}` : ''}
                           </span>
                         );
                       })}

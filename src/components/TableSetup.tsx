@@ -6,7 +6,8 @@ import { INITIAL_ORIGINAL_HANDS } from '@/lib/matchSchedule';
 import { useAuth } from '@/context/AuthContext';
 import type { Seat } from '@/types/bridge';
 import { SEATS, SUIT_SYMBOLS } from '@/types/bridge';
-import { ArrowLeft, Compass, X, Lock } from 'lucide-react';
+import { ArrowLeft, Compass, X, Lock, Circle } from 'lucide-react';
+import { useTablePresence } from '@/hooks/usePresence';
 
 interface TableSetupProps {
   tableId: string;
@@ -156,6 +157,8 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
 
   const allSeatsFilled = SEATS.every((s) => seats[s] !== null);
   const mySeat = SEATS.find((s) => seats[s]?.user_id === profile?.id);
+  const presentUserIds = useTablePresence(tableId, profile?.id ?? '', tableStatus !== 'playing');
+  const activeCount = SEATS.filter((s) => seats[s] && presentUserIds.has(seats[s]!.user_id)).length;
 
   const handleStartTable = async () => {
     if (!allSeatsFilled || !isHost || busy) return;
@@ -242,6 +245,7 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
                 teamLabel="NS"
                 busy={busy}
                 myUserId={profile?.id ?? ''}
+                isPresent={!!seats.N && presentUserIds.has(seats.N.user_id)}
               />
             </div>
 
@@ -256,6 +260,7 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
                 teamLabel="EW"
                 busy={busy}
                 myUserId={profile?.id ?? ''}
+                isPresent={!!seats.W && presentUserIds.has(seats.W.user_id)}
               />
             </div>
 
@@ -279,6 +284,7 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
                 teamLabel="EW"
                 busy={busy}
                 myUserId={profile?.id ?? ''}
+                isPresent={!!seats.E && presentUserIds.has(seats.E.user_id)}
               />
             </div>
 
@@ -293,6 +299,7 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
                 teamLabel="NS"
                 busy={busy}
                 myUserId={profile?.id ?? ''}
+                isPresent={!!seats.S && presentUserIds.has(seats.S.user_id)}
               />
             </div>
           </div>
@@ -303,6 +310,12 @@ export function TableSetup({ tableId, onGameStart, onBack }: TableSetupProps) {
                 <span className="text-emerald-400">All seats filled! Ready to start.</span>
               ) : (
                 <span>{SEATS.filter((s) => seats[s]).length}/4 seats assigned</span>
+              )}
+              {activeCount > 0 && (
+                <span className="text-emerald-400 ml-2 inline-flex items-center gap-1">
+                  <Circle className="w-2 h-2 fill-emerald-400 text-emerald-400" />
+                  {activeCount} player{activeCount !== 1 ? 's' : ''} online
+                </span>
               )}
             </div>
             {mySeat && (
@@ -362,7 +375,8 @@ function SeatSlot({
   teamLabel,
   busy,
   myUserId,
-}: SeatSlotProps) {
+  isPresent,
+}: SeatSlotProps & { isPresent: boolean }) {
   const isMe = assignment?.user_id === myUserId;
   const [email, setEmail] = useState('');
 
@@ -370,7 +384,15 @@ function SeatSlot({
     <div className={`w-full p-4 rounded-xl border-2 transition-all ${colorClass}`}>
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs font-bold text-slate-400">{seat} ({teamLabel})</span>
-        {isMe && <span className="text-xs text-emerald-400 font-medium">You</span>}
+        <div className="flex items-center gap-1.5">
+          {isPresent && assignment && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400">
+              <Circle className="w-2 h-2 fill-emerald-400 text-emerald-400" />
+              online
+            </span>
+          )}
+          {isMe && <span className="text-xs text-emerald-400 font-medium">You</span>}
+        </div>
       </div>
 
       {isHost ? (

@@ -7,6 +7,7 @@ import { BiddingPanel, AuctionHistory } from '@/components/BiddingPanel';
 import { BiddingReference } from '@/components/BiddingReference';
 import { ScorePanel, NextHandButton } from '@/components/ScorePanel';
 import { useCardPlayAnimation } from '@/hooks/useCardPlayAnimation';
+import { useTablePresence } from '@/hooks/usePresence';
 import { sortHand, dummySeat, isVulnerable } from '@/context/GameContext';
 import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/bridge';
 import { SEATS, SUIT_SYMBOLS, STRAIN_SYMBOLS, sideOfSeat } from '@/types/bridge';
@@ -106,6 +107,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     toggleVideo, toggleAudio, toggleOutput, error: webrtcError,
   } = useWebRTC({ tableId, userId: myUserId, enabled: true });
   const { ref: tableAreaRef, attach: attachTableArea, width: availW, height: availH } = useContainerSize();
+  const presentUserIds = useTablePresence(tableId, myUserId);
 
   const seatToUserId: Record<Seat, string> = useMemo(() => {
     const map: Record<Seat, string> = { N: '', E: '', S: '', W: '' };
@@ -484,6 +486,9 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
               {contract.level}{contract.strain === 'NT' ? 'NT' : SUIT_SYMBOLS[contract.strain as Suit]}{contract.doubled === 1 ? 'X' : contract.doubled === 2 ? 'XX' : ''} by {contract.declarer}
             </span></span>
           )}
+          <span className="text-slate-400">
+            {presentUserIds.size}/4 online
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
