@@ -96,7 +96,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     playState, phase, passedOut, isMyTurn, currentSeat,
     legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading,
     handRole,
-    handNumber, currentHandId, replayOfHandNumber,
+    handNumber, currentHandId, replayOfHandNumber, matchState,
     turnTimes, turnStartedAt, gameTurnTimes,
   } = game;
 
