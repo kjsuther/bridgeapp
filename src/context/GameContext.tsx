@@ -46,6 +46,7 @@ interface GameContextValue {
   handNumber: number;
   currentHandId: string | null;
   lastCompletedHandId: string | null;
+  lastCompletedHandNumber: number | null;
   matchPointDifference: number | null;
   boardPointDifference: number | null;
   nextHandAvailable: boolean;
@@ -99,6 +100,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
   const handVersionRef = useRef(0);
   const [currentHandId, setCurrentHandId] = useState<string | null>(null);
   const [lastCompletedHandId, setLastCompletedHandId] = useState<string | null>(null);
+  const [lastCompletedHandNumber, setLastCompletedHandNumber] = useState<number | null>(null);
   const [matchPointDifference, setMatchPointDifference] = useState<number | null>(null);
   const [boardPointDifference, setBoardPointDifference] = useState<number | null>(null);
   const [bidUndoRequest, setBidUndoRequest] = useState<UndoRequest | null>(null);
@@ -247,7 +249,9 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
 
     if (!completedResult.error && completedResult.data) {
       const completed = completedResult.data.filter(row => row.phase === 'scoring' || row.phase === 'finished');
-      setLastCompletedHandId(completed.find(row => row.contract)?.id ?? null);
+      const lastCompleted = completed.find(row => row.contract);
+      setLastCompletedHandId(lastCompleted?.id ?? null);
+      setLastCompletedHandNumber(lastCompleted?.hand_number ?? null);
       setMatchPointDifference(completed.reduce((sum, row) => sum + (Number((row.imp_result as { netPoints?: number } | null)?.netPoints) || 0), 0));
     }
 
@@ -990,6 +994,7 @@ export function GameProvider({ tableId, gameId: initialGameId, children }: {
     handNumber,
     currentHandId,
     lastCompletedHandId,
+    lastCompletedHandNumber,
     matchPointDifference,
     boardPointDifference,
     nextHandAvailable,

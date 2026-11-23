@@ -1,12 +1,18 @@
 import { useGame } from '@/context/GameContext';
-import { ArrowRight, Scale, Timer } from 'lucide-react';
+import { ArrowRight, Scale, Timer, Microscope } from 'lucide-react';
 import { rawScoreForNS } from '@/lib/impScoring';
 import { formatDuration } from '@/lib/turn';
+import { openDoubleDummyWindow } from '@/lib/historyWindow';
 import type { Seat, Contract, Vulnerability } from '@/types/bridge';
 import { SEATS, sideOfSeat, SUIT_SYMBOLS } from '@/types/bridge';
 
 export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
-  const { lastScore, phase, contract, vulnerability, handNumber, handRole, matchState, matchPointDifference, boardPointDifference, turnTimes, gameTurnTimes, replayOfHandNumber } = useGame();
+  const {
+    lastScore, phase, contract, vulnerability, handNumber, handRole,
+    matchState, matchPointDifference, boardPointDifference,
+    turnTimes, gameTurnTimes, replayOfHandNumber,
+    lastCompletedHandId, lastCompletedHandNumber,
+  } = useGame();
 
   const handComplete = phase === 'scoring' || phase === 'finished';
   const phaseLabel = phase === 'bidding' ? 'Bidding' : phase === 'playing' ? 'Playing' : handComplete ? 'Complete' : '';
@@ -19,7 +25,7 @@ export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
           <h3 className="text-white font-medium text-sm">Current Hand</h3>
           <div className="flex items-center gap-2">
             {phaseLabel && <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">{phaseLabel}</span>}
-            <span className="text-xs text-slate-400">Hand {handNumber}</span>
+            <span className="text-xs text-slate-400">Board {matchState.boardNumber} · Hand {handNumber}</span>
           </div>
         </div>
 
@@ -34,21 +40,26 @@ export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
         </div>
       </div>
 
-      {/* Last Completed Hand section */}
-      {lastScore && handComplete && (
+      {/* Last Completed Hand section — visible during all phases, not just scoring */}
+      {lastScore && lastCompletedHandId && (
         <div className="bg-slate-800/70 backdrop-blur rounded-xl border border-slate-700/50 p-4 space-y-3">
-          <h3 className="text-white font-medium text-sm">Last Completed Hand</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-white font-medium text-sm">Last Completed Hand</h3>
+            {lastCompletedHandNumber != null && (
+              <span className="text-xs text-slate-400">Hand {lastCompletedHandNumber}</span>
+            )}
+          </div>
           <div className={`rounded-lg p-3 ${lastScore.made ? 'bg-emerald-950/40 border border-emerald-700/30' : 'bg-red-950/40 border border-red-800/30'}`}>
             <div className="flex items-center justify-between mb-1">
               <p className="text-sm font-medium">
-                {contract && <span className="text-slate-200">{contractLabel(contract)} </span>}
+                {contract && handComplete && <span className="text-slate-200">{contractLabel(contract)} </span>}
+                {!handComplete && lastScore.contract && <span className="text-slate-200">{contractLabel(lastScore.contract)} </span>}
                 <span className={lastScore.made ? 'text-emerald-300' : 'text-red-300'}>
                   {lastScore.made
                     ? `Made${lastScore.overtricks > 0 ? ` +${lastScore.overtricks}` : ''}`
                     : `Down ${lastScore.undertricks}`}
                 </span>
               </p>
-              <span className="text-xs text-slate-400">Hand {handNumber}</span>
             </div>
             <div className="space-y-1 text-xs">
               <div className="flex justify-between">
@@ -59,12 +70,18 @@ export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
                 <span className="text-slate-400">Declarer side:</span>
                 <span className="text-white">{lastScore.declarerSide}</span>
               </div>
-              {contract && (
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Score (N-S):</span>
-                  <span className="text-white">{signed(rawScoreForNS(contract, vulnerability))} pts</span>
-                </div>
-              )}
+              {(() => {
+                const scoreContract = handComplete ? contract : lastScore.contract;
+                if (scoreContract) {
+                  return (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Score (N-S):</span>
+                      <span className="text-white">{signed(rawScoreForNS(scoreContract, vulnerability))} pts</span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
               {boardPointDifference != null && (
                 <div className="flex justify-between">
                   <span className="text-slate-400">Board pts:</span>
@@ -73,6 +90,13 @@ export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
               )}
             </div>
           </div>
+          <button
+            onClick={() => openDoubleDummyWindow(lastCompletedHandId)}
+            className="w-full flex items-center justify-center gap-2 rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 transition-colors"
+          >
+            <Microscope className="w-4 h-4" />
+            Double-dummy analysis
+          </button>
         </div>
       )}
 
@@ -85,7 +109,7 @@ export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
               <h3 className="text-white font-medium text-sm">Match Total</h3>
             </div>
             <span className="text-xs text-slate-500">
-              {handRole === 'replay' ? 'Replay' : 'Original'}
+              Board {matchState.boardNumber}
             </span>
           </div>
           <div className="flex justify-between text-sm">
@@ -93,9 +117,6 @@ export function ScorePanel({ showMatch = true }: { showMatch?: boolean } = {}) {
             <span className="text-blue-300">Team B (E-W): <span className="font-bold">{matchState.totalImpsB > 0 ? '+' : ''}{matchState.totalImpsB}</span></span>
           </div>
           <p className="text-xs text-slate-400">Raw point diff: {matchPointDifference == null ? 'Loading…' : `A ${signed(matchPointDifference)} / B ${signed(-matchPointDifference)}`}</p>
-          {matchState.boardNumber > 0 && (
-            <p className="text-xs text-slate-500">{matchState.boardNumber} board{matchState.boardNumber !== 1 ? 's' : ''} completed</p>
-          )}
         </div>
       )}
 

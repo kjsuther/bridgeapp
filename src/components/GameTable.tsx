@@ -6,7 +6,6 @@ import { HandDisplay, PlayedCard, CardBackFan, DummyHandDisplay, type HandLayout
 import { BiddingPanel, AuctionHistory } from '@/components/BiddingPanel';
 import { BiddingReference } from '@/components/BiddingReference';
 import { ScorePanel, NextHandButton } from '@/components/ScorePanel';
-import { openDoubleDummyWindow } from '@/lib/historyWindow';
 import { useCardPlayAnimation } from '@/hooks/useCardPlayAnimation';
 import { sortHand, dummySeat, isVulnerable } from '@/context/GameContext';
 import type { Card, Seat, Suit, UndoRequest, Bid, AuctionEntry } from '@/types/bridge';
@@ -97,7 +96,7 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     playState, phase, passedOut, isMyTurn, currentSeat,
     legalCards, playCard, requestUndo, requestBidUndo, bidUndoRequest, respondUndo, error, loading,
     handRole,
-    handNumber, currentHandId, lastCompletedHandId, replayOfHandNumber,
+    handNumber, currentHandId, replayOfHandNumber,
     turnTimes, turnStartedAt, gameTurnTimes,
   } = game;
 
@@ -224,7 +223,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
     return result;
   }, [turnTimes, acting, liveTurnMs]);
 
-  const analysisHandId = handComplete && contract ? currentHandId : lastCompletedHandId;
   const captureCardSource = useCardPlayAnimation(
     tableAreaRef, `${game.gameId}-${handNumber}`, playState, animationsEnabled, fastAnimations,
   );
@@ -470,6 +468,8 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
           {phase === 'bidding' && currentSeat && <span role="status" aria-live="polite" className="rounded-lg bg-amber-500/20 px-3 py-1 font-semibold text-amber-200">
             {isMyTurn ? 'Your turn to bid' : `${seatToName[currentSeat] || currentSeat} (${currentSeat}) to bid`}
           </span>}
+          <span className="text-slate-400">Board <span className="text-white font-medium">{matchState.boardNumber}</span></span>
+          <span className="text-slate-400">Hand <span className="text-white font-medium">{handNumber}</span></span>
           <span className="text-slate-400">Dealer: <span className="text-white font-medium">{dealer}</span></span>
           <span className="text-slate-400">Vul: <span className="text-white font-medium">{vulText}</span></span>
           <span className={`px-2 py-0.5 rounded-full font-medium ${
@@ -487,7 +487,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          {analysisHandId && <button onClick={() => openDoubleDummyWindow(analysisHandId)} className="rounded-lg bg-amber-700 px-2.5 py-1.5 text-xs font-medium text-white lg:hidden">Last hand: double dummy</button>}
           <button
             onClick={onShowHistory}
             className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-600"
@@ -746,7 +745,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
                   ) : (
                     <>
                       <ScorePanel showMatch={false} />
-                      {contract && currentHandId && <button onClick={() => openDoubleDummyWindow(currentHandId)} className="rounded-lg bg-amber-700 px-4 py-2 text-sm text-white">Open double-dummy analysis</button>}
                       <NextHandButton />
                     </>
                   )}
@@ -862,12 +860,6 @@ export function GameTable({ tableId, onLeave, onShowHistory }: GameTableProps) {
             </div>
           </div>
 
-          {/* Last Completed Hand: analysis */}
-          {(phase === 'scoring' || phase === 'finished') && analysisHandId && (
-            <div className="mt-3">
-              <button onClick={() => analysisHandId && openDoubleDummyWindow(analysisHandId)} className="w-full rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 transition-colors">Double-dummy analysis</button>
-            </div>
-          )}
         </div>
       </div>
       {profileOpen && <ProfileSettings onClose={() => setProfileOpen(false)} />}
